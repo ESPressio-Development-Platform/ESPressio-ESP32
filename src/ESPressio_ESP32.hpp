@@ -6,6 +6,7 @@
 #include "ESPressio_ESP32QueueProvider.hpp"
 #include "ESPressio_ESP32ClockProvider.hpp"
 #include "ESPressio_ESP32GPIOProvider.hpp"
+#include "ESPressio_ESP32EntropyProvider.hpp"
 
 #if defined(ARDUINO)
 #include "ESPressio_ArduinoGPIOProvider.hpp"
@@ -25,6 +26,7 @@ inline void InstallSystemProviders() noexcept {
     InstallQueueProvider();
     InstallClockProviders();
     InstallGPIOController();
+    InstallEntropySource();
 }
 
 } // namespace ESPressio::ESP32Platform
