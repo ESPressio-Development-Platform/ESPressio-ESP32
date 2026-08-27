@@ -13,7 +13,7 @@
 #endif
 
 #if defined(ARDUINO_ARCH_ESP32)
-#include "ESPressio_ESP32WiFi.hpp"
+#include "ESPressio_WiFiPlatform.hpp"
 #include "ESPressio_WiFiRadio.hpp"
 #endif
 
