@@ -13,7 +13,7 @@ void setup() {
     values.push_back(42);
 
     const auto statistics =
-        ESPressio::ESP32Platform::MemoryProvider().Statistics();
+        ESPressio::ESP32Platform::GetMemoryProvider().Statistics();
 
     volatile int observed = values.front();
     volatile uint32_t requests = statistics.ExternalPreferredRequests;
