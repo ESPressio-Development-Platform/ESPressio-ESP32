@@ -4,7 +4,7 @@
 #include "ESPressio_ExecutionProvider.hpp"
 #include "ESPressio_SynchronizationProvider.hpp"
 #include "ESPressio_QueueProvider.hpp"
-#include "ESPressio_ESP32ClockProvider.hpp"
+#include "ESPressio_ClockProvider.hpp"
 #include "ESPressio_ESP32GPIOProvider.hpp"
 #include "ESPressio_EntropyProvider.hpp"
 
