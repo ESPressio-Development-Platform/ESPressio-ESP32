@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <new>
 #include <esp_heap_caps.h>
+#include <esp_idf_version.h>
 #include <ESPressio_Memory.hpp>
 
 namespace ESPressio::ESP32 {
@@ -33,7 +34,8 @@ public:
     }
 
     bool Supports(System::Memory::MemoryPolicy policy) const noexcept override {
-        if (policy == System::Memory::MemoryPolicy::ExternalRequired || policy == System::Memory::MemoryPolicy::ExternalPreferred) {
+        if (policy == System::Memory::MemoryPolicy::ExternalRequired ||
+            policy == System::Memory::MemoryPolicy::ExternalPreferred) {
             return heap_caps_get_total_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != 0;
         }
         return true;
@@ -42,12 +44,17 @@ public:
 private:
     static void* TryAllocateWithCaps(std::size_t bytes, std::size_t alignment, uint32_t caps) noexcept {
 #if ESP_IDF_VERSION_MAJOR >= 4
-        return heap_caps_aligned_alloc(alignment < sizeof(void*) ? sizeof(void*) : alignment, bytes, caps);
+        return heap_caps_aligned_alloc(
+            alignment < sizeof(void*) ? sizeof(void*) : alignment,
+            bytes,
+            caps
+        );
 #else
         (void)alignment;
         return heap_caps_malloc(bytes, caps);
 #endif
     }
+
     static void* AllocateWithCaps(std::size_t bytes, std::size_t alignment, uint32_t caps) {
         void* result = TryAllocateWithCaps(bytes, alignment, caps);
         if (!result) throw std::bad_alloc();
