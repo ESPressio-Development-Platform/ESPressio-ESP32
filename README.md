@@ -6,6 +6,8 @@ ESP32-specific implementations of ESPressio hardware/runtime abstractions and ap
 
 ESPressio-ESP32 is the concrete platform layer beneath portable ESPressio libraries. ESP-IDF, Arduino-ESP32 and FreeRTOS APIs belong here when they are used to satisfy an abstraction owned by ESPressio-System or a higher-level domain library.
 
+The repository name supplies the platform context. Concrete capability names inside this package therefore do **not** redundantly repeat `ESP32`; where two implementation APIs coexist, the API is used as the discriminator instead, such as `IDFGPIOController` and `ArduinoGPIOController`.
+
 ## When to use it
 
 Use ESPressio-ESP32 from a top-level ESP32 application to install concrete providers and compose target-specific implementations required by portable ESPressio code.
@@ -20,12 +22,12 @@ lib_deps =
     https://github.com/ESPressio-Development-Platform/ESPressio-ESP32.git#feature/1-system-memory-provider
 ```
 
-ESPressio-ESP32 currently also consumes the active WiFi and Persistence contract branches because it provides their ESP32 implementations:
+ESPressio-ESP32 currently also consumes the active WiFi and Persistence contract branches because it provides their concrete implementations:
 
 ```text
 ESPressio-ESP32
     -> ESPressio-System
-    -> ESPressio-WiFi       (contract only)
+    -> ESPressio-WiFi        (contract only)
     -> ESPressio-Persistence (contracts only)
 ```
 
@@ -50,7 +52,7 @@ This installs:
 - the `esp_timer` monotonic clock;
 - the GPTimer high-resolution counter provider;
 - the ESP-IDF GPIO controller;
-- the ESP32 hardware entropy provider.
+- the hardware entropy source.
 
 Individual providers can also be installed independently when the application needs explicit control.
 
@@ -71,23 +73,27 @@ On devices without PSRAM, `ExternalPreferred` remains portable by falling back i
 
 System allocators capture the active memory provider when constructed. Install the provider before allocator-aware global ESPressio objects are created, or construct those objects explicitly after platform bootstrap.
 
-Runtime allocation statistics remain available through `MemoryProvider().Statistics()`.
+Runtime allocation statistics are available through:
+
+```cpp
+ESPressio::ESP32Platform::GetMemoryProvider().Statistics();
+```
 
 ## Execution, synchronization and queues
 
-`ESP32ExecutionProvider` maps the System execution contract onto FreeRTOS tasks. It provides task creation/destruction, suspend/resume, current-task identity, stack high-water telemetry, processor-count discovery, sleep/yield and processor affinity.
+`ExecutionProvider` maps the System execution contract onto FreeRTOS tasks. It provides task creation/destruction, suspend/resume, current-task identity, stack high-water telemetry, processor-count discovery, sleep/yield and processor affinity.
 
 Native `TaskHandle_t` values do not leave this provider; callers see opaque System execution handles.
 
-`ESP32SynchronizationProvider` supplies binary System signals using FreeRTOS semaphores, including ISR-context signalling.
+`SynchronizationProvider` supplies binary System signals using FreeRTOS semaphores, including ISR-context signalling.
 
-`ESP32QueueProvider` supplies bounded message queues using FreeRTOS queues, including callback/ISR-safe enqueue. Higher-level libraries can therefore use deterministic queueing without exposing `QueueHandle_t`, `TickType_t` or related RTOS types.
+`QueueProvider` supplies bounded message queues using FreeRTOS queues, including callback/ISR-safe enqueue. Higher-level libraries can therefore use deterministic queueing without exposing `QueueHandle_t`, `TickType_t` or related RTOS types.
 
 ## Clock providers
 
-`ESP32MonotonicClock` maps `IMonotonicClock` to `esp_timer_get_time()` and exposes nanosecond-form timestamps.
+`MonotonicClock` maps `IMonotonicClock` to `esp_timer_get_time()` and exposes nanosecond-form timestamps.
 
-`ESP32HighResolutionCounterProvider` creates dedicated counters backed by ESP-IDF GPTimer. Higher-level libraries therefore do not need to expose `gptimer_handle_t`, `esp_err_t` or GPTimer driver headers.
+`HighResolutionCounterProvider` creates dedicated counters backed by ESP-IDF GPTimer. Higher-level libraries therefore do not need to expose `gptimer_handle_t`, `esp_err_t` or GPTimer driver headers.
 
 Native ESP-IDF results are translated into `System::PlatformResult`; the original numeric error code is retained only as optional diagnostic information.
 
@@ -97,11 +103,11 @@ Two concrete GPIO implementations are provided.
 
 ### ESP-IDF GPIO provider
 
-The default `InstallSystemProviders()` path installs `ESP32GPIOController`, which maps System GPIO configuration/read/write operations directly to ESP-IDF GPIO facilities.
+The default `InstallSystemProviders()` path installs `IDFGPIOController`, which maps System GPIO configuration/read/write operations directly to ESP-IDF GPIO facilities.
 
 Interrupt creation returns a System `InterruptCreationResult` containing both an explicit status and a move-only RAII handle. Destroying/resetting the handle removes the registered ISR handler. The handle can also be enabled and disabled while retained.
 
-ESP32-specific CPU/core affinity is supported as a request:
+Specific CPU/core affinity is supported as a request:
 
 ```cpp
 using namespace ESPressio::System;
@@ -111,7 +117,7 @@ InterruptConfiguration interruptConfig;
 interruptConfig.Trigger = InterruptTrigger::RisingEdge;
 interruptConfig.Affinity = ProcessorAffinity::Specific(1);
 
-auto created = ESP32Platform::GPIOController().CreateInterrupt(
+auto created = ESPressio::ESP32Platform::IDFGPIO().CreateInterrupt(
     26,
     interruptConfig,
     callback,
@@ -135,15 +141,15 @@ The Arduino provider advertises that specific processor affinity is unsupported.
 
 ## Hardware entropy
 
-`ESP32EntropySource` satisfies `System::Entropy::IEntropySource` using ESP32 hardware random generation and advertises cryptographic suitability.
+`EntropySource` satisfies `System::Entropy::IEntropySource` using the hardware random generator and advertises cryptographic suitability.
 
-Security therefore consumes platform entropy through System rather than calling ESP32 APIs directly:
+Security therefore consumes platform entropy through System rather than calling target APIs directly:
 
 ```cpp
 ESPressio::ESP32Platform::InstallEntropySource();
 ```
 
-`InstallSystemProviders()` already includes this provider. A Security `SystemEntropyRandomSource` can then use the installed source without any Security-side ESP32 dependency.
+`InstallSystemProviders()` already includes this source. ESPressio-Security's `RandomSource` then consumes the installed System entropy source without any Security-side ESP32 dependency.
 
 ## Arduino byte-stream adapters
 
@@ -160,27 +166,29 @@ The adapters implement `System::IO::IByteInput`, `IByteOutput` and `IByteStream`
 
 ## WiFi platform implementation
 
-The concrete ESP32 WiFi implementation now lives in this repository:
+The concrete WiFi implementation lives in this repository while the contract and all WiFi-domain policy remain in ESPressio-WiFi:
 
 ```cpp
-#include <ESPressio_ESP32WiFi.hpp>
+#include <ESPressio_WiFiPlatform.hpp>
+
+ESPressio::WiFi::WiFiPlatform wifiPlatform;
 ```
 
 `ESPressio::WiFi::IWiFiPlatform`, configuration, runtime state, reconnect policy, scanning and lifecycle remain owned by ESPressio-WiFi. Only Arduino/ESP-IDF implementation details—`WiFi.h`, `esp_wifi`, `esp_netif`, DHCP and radio access—belong here.
 
-The associated `ESPressio_ESP32WiFiRadio.hpp` contains ESP32 RF-level helpers used when native radio policy/fingerprints are required. This relocation does not move WiFi-domain policy into the platform layer.
+`ESPressio_WiFiRadio.hpp` contains RF-level helpers used when native radio policy/fingerprints are required. Its public helper names are likewise contextual (`WiFiRadioFingerprint`, `ReadWiFiRadioFingerprint`, `ApplyWiFiRadioPolicy`) rather than redundantly platform-qualified.
 
 ## Persistence platform implementations
 
-ESP32 hardware-backed Persistence providers are now supplied here rather than by ESPressio-Persistence itself:
+Hardware-backed Persistence providers are supplied here rather than by ESPressio-Persistence itself:
 
 ```cpp
-#include <ESPressio_ESP32Persistence.hpp>
+#include <ESPressio_PersistenceBackends.hpp>
 ```
 
 Available implementations include:
 
-- `PreferencesStorage` — ESP32 Preferences/NVS;
+- `PreferencesStorage` — Preferences/NVS;
 - `LittleFSStorage`;
 - `SPIFFSStorage`;
 - `FFatStorage`;
@@ -216,7 +224,9 @@ System platform providers live in:
 ESPressio::ESP32Platform
 ```
 
-rather than `ESPressio::ESP32`, because Arduino/ESP32 toolchains may define `ESP32` as a preprocessor macro. Domain implementations continue to satisfy interfaces in their domain namespaces; for example the concrete WiFi class implements `ESPressio::WiFi::IWiFiPlatform`.
+rather than `ESPressio::ESP32`, because Arduino/ESP32 toolchains may define `ESP32` as a preprocessor macro. The namespace identifies the implementation package; contained provider type names remain contextual and neutral.
+
+Domain implementations continue to satisfy interfaces in their domain namespaces; for example `ESPressio::WiFi::WiFiPlatform` implements `ESPressio::WiFi::IWiFiPlatform`.
 
 ## Architectural boundary
 
