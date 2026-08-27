@@ -11,6 +11,11 @@
 #include "ESPressio_ArduinoGPIOProvider.hpp"
 #endif
 
+#if defined(ARDUINO_ARCH_ESP32)
+#include "ESPressio_ESP32WiFi.hpp"
+#include "ESPressio_ESP32WiFiRadio.hpp"
+#endif
+
 namespace ESPressio::ESP32Platform {
 
 inline void InstallSystemProviders() noexcept {
