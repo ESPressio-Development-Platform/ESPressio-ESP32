@@ -53,7 +53,7 @@ public:
         bytesWritten = size == 0 ? 0 : _output->write(data, size);
         return bytesWritten == size
             ? System::PlatformResult::Succeeded()
-            : System::PlatformResult::Failed(System::PlatformStatus::Failed);
+            : System::PlatformResult::Failed(System::PlatformStatus::HardwareFailure);
     }
 
 private:
@@ -97,7 +97,7 @@ public:
         bytesWritten = size == 0 ? 0 : _stream->write(data, size);
         return bytesWritten == size
             ? System::PlatformResult::Succeeded()
-            : System::PlatformResult::Failed(System::PlatformStatus::Failed);
+            : System::PlatformResult::Failed(System::PlatformStatus::HardwareFailure);
     }
 
 private:
