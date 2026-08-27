@@ -20,4 +20,14 @@ jobs:
         run: pip install platformio
       - name: Build provider smoke project
         working-directory: examples/ProviderSmoke
-        run: pio run
+        shell: bash
+        run: |
+          set -o pipefail
+          pio run 2>&1 | tee ../../esp32-provider-build.log
+      - name: Upload compiler log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32-provider-build-log
+          path: esp32-provider-build.log
+          if-no-files-found: warn
