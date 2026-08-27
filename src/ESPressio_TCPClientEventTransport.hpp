@@ -10,7 +10,7 @@
 #include <vector>
 
 #include <WiFiClient.h>
-#include <ESPressio_Clock.hpp>
+#include <ESPressio_SystemPlatformClock.hpp>
 #include <ESPressio_EventTransport.hpp>
 
 #include <ESPressio_SocketEventFrame.hpp>
