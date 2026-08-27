@@ -43,7 +43,9 @@ This file records changes made during the platform-abstraction tranche tracked b
 - Moved the concrete WiFi platform implementation and radio helpers from ESPressio-WiFi into this repository while retaining `IWiFiPlatform` and WiFi-domain policy in ESPressio-WiFi.
 - Moved ESPressio-Persistence concrete storage backends here: Preferences/NVS, LittleFS, SPIFFS, FFat, SD/SPI and SD_MMC, together with their shared Arduino `fs::FS` implementation base.
 - ESPressio-ESP32 depends on the corresponding WiFi/Persistence working branches solely to implement their domain-owned contracts.
-- Concrete Arduino networking transports are being relocated here from ESPressio-Sockets while socket framing/protocol/domain infrastructure remains in ESPressio-Sockets.
+- Relocated Arduino `UDPEventTransport`, `TCPClientEventTransport` and `TCPServerEventTransport` implementations from ESPressio-Sockets into this repository while leaving socket endpoint types, framing, worker policy and transport semantics in ESPressio-Sockets.
+- Added `ESPressio_ESP32SocketTransports.hpp` as the application-facing umbrella for the relocated UDP/TCP adapters.
+- Declared the Sockets and Event working branches explicitly in this package manifest so relocated adapters do not rely on accidental transitive dependencies.
 
 ### Naming
 - Concrete capabilities inside the ESPressio-ESP32 package do not redundantly repeat the hardware-platform name. Canonical names include `MemoryProvider`, `ExecutionProvider`, `SynchronizationProvider`, `QueueProvider`, `MonotonicClock`, `HighResolutionCounter`, `EntropySource` and the neutral Persistence backend names.
