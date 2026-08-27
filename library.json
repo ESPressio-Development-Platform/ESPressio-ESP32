@@ -1,7 +1,7 @@
 {
   "name": "ESPressio-ESP32",
   "description": "ESP32-specific implementations of ESPressio hardware/runtime and domain platform abstractions",
-  "keywords": "espressio,esp32,system,memory,psram,allocator,execution,gpio,timing,wifi,persistence",
+  "keywords": "espressio,esp32,system,memory,psram,allocator,execution,gpio,timing,wifi,persistence,sockets,event",
   "authors": {"name":"Simon J. Stuart","maintainer":true,"url":"https://espressio.org"},
   "build": {"flags":["-std=gnu++17","-DESPRESSIO_ESP32"]},
   "repository": {"type":"git","url":"https://github.com/ESPressio-Development-Platform/ESPressio-ESP32.git"},
@@ -23,6 +23,16 @@
     {
       "name":"ESPressio-Persistence",
       "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#feature/10-platform-storage-abstractions",
+      "platforms":"espressif32"
+    },
+    {
+      "name":"ESPressio-Sockets",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Sockets.git#feature/32-platform-network-abstractions",
+      "platforms":"espressif32"
+    },
+    {
+      "name":"ESPressio-Event",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#feature/57-rtti-free-memory-efficiency",
       "platforms":"espressif32"
     }
   ]
