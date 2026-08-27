@@ -13,7 +13,7 @@
 #define ESPRESSIO_ESP32_HAS_GPTIMER 0
 #endif
 
-#include <ESPressio_Clock.hpp>
+#include <ESPressio_SystemClock.hpp>
 
 namespace ESPressio::ESP32Platform {
 
