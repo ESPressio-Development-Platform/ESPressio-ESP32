@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'optimisation/**'
+  pull_request:
+
+jobs:
+  esp32-provider:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build provider smoke project
+        working-directory: examples/ProviderSmoke
+        run: pio run
