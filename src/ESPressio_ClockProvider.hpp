@@ -5,7 +5,13 @@
 
 #include <esp_err.h>
 #include <esp_timer.h>
+
+#if __has_include(<driver/gptimer.h>)
 #include <driver/gptimer.h>
+#define ESPRESSIO_ESP32_HAS_GPTIMER 1
+#else
+#define ESPRESSIO_ESP32_HAS_GPTIMER 0
+#endif
 
 #include <ESPressio_Clock.hpp>
 
@@ -18,9 +24,13 @@ inline System::PlatformResult PlatformResultFromEspError(esp_err_t error) noexce
     switch (error) {
         case ESP_ERR_INVALID_ARG: status = System::PlatformStatus::InvalidArgument; break;
         case ESP_ERR_NO_MEM: status = System::PlatformStatus::OutOfMemory; break;
+#ifdef ESP_ERR_NOT_SUPPORTED
         case ESP_ERR_NOT_SUPPORTED: status = System::PlatformStatus::Unsupported; break;
+#endif
         case ESP_ERR_INVALID_STATE: status = System::PlatformStatus::Conflict; break;
+#ifdef ESP_ERR_TIMEOUT
         case ESP_ERR_TIMEOUT: status = System::PlatformStatus::Timeout; break;
+#endif
         default: break;
     }
     return System::PlatformResult::Failed(status, static_cast<int32_t>(error));
@@ -35,6 +45,8 @@ public:
     uint64_t ResolutionNanoseconds() const noexcept override { return 1000ULL; }
     bool IsInterruptSafe() const noexcept override { return true; }
 };
+
+#if ESPRESSIO_ESP32_HAS_GPTIMER
 
 class HighResolutionCounter final : public System::Clock::IHighResolutionCounter {
 private:
@@ -128,12 +140,19 @@ public:
     System::PlatformResult InitializationResult() const noexcept override { return _initializationResult; }
 };
 
+#endif
+
 class HighResolutionCounterProvider final : public System::Clock::IHighResolutionCounterProvider {
 public:
     std::unique_ptr<System::Clock::IHighResolutionCounter> Create(
         uint64_t requestedResolutionHz
     ) override {
+#if ESPRESSIO_ESP32_HAS_GPTIMER
         return std::make_unique<HighResolutionCounter>(requestedResolutionHz);
+#else
+        (void)requestedResolutionHz;
+        return nullptr;
+#endif
     }
 };
 
@@ -145,6 +164,10 @@ inline MonotonicClock& GetMonotonicClock() noexcept {
 inline HighResolutionCounterProvider& GetHighResolutionCounterProvider() noexcept {
     static HighResolutionCounterProvider provider;
     return provider;
+}
+
+inline bool HasGPTimerHighResolutionCounter() noexcept {
+    return ESPRESSIO_ESP32_HAS_GPTIMER != 0;
 }
 
 inline void InstallClockProviders() noexcept {
