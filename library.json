@@ -24,28 +24,6 @@
       "name":"ESPressio-Persistence",
       "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#feature/10-platform-storage-abstractions",
       "platforms":"espressif32"
-    },
-    {
-      "name":"ESPressio-Sockets",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Sockets.git#feature/32-platform-network-abstractions",
-      "platforms":"espressif32"
-    },
-    {
-      "name":"ESPressio-Event",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#feature/57-rtti-free-memory-efficiency",
-      "platforms":"espressif32"
-    },
-    {
-      "owner":"links2004",
-      "name":"WebSockets",
-      "version":"^2.3.6",
-      "platforms":"espressif32"
-    },
-    {
-      "owner":"knolleary",
-      "name":"PubSubClient",
-      "version":"^2.8",
-      "platforms":"espressif32"
     }
   ]
 }
