@@ -15,7 +15,7 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
-#include <ESPressio_Clock.hpp>
+#include <ESPressio_SystemPlatformClock.hpp>
 #include <ESPressio_EventTransport.hpp>
 
 #include <ESPressio_SocketTypes.hpp>
