@@ -17,7 +17,9 @@ This file records changes made during the platform-abstraction tranche tracked b
 
 ### Clocking
 - Added a monotonic clock backed by `esp_timer_get_time()`.
-- Added an ESP-IDF GPTimer-backed high-resolution counter provider.
+- Added an ESP-IDF GPTimer-backed high-resolution counter provider when the selected ESP-IDF/Arduino-ESP32 toolchain exposes `driver/gptimer.h`.
+- Older ESP-IDF generations without the GPTimer driver still install the monotonic clock and report the dedicated high-resolution-counter capability as unavailable rather than failing the platform package to compile.
+- Added `HasGPTimerHighResolutionCounter()` for platform-side capability inspection without exposing a native GPTimer type.
 - `esp_err_t` values are translated to `PlatformResult` and retained only as optional native diagnostic codes.
 
 ### GPIO
@@ -40,6 +42,7 @@ This file records changes made during the platform-abstraction tranche tracked b
 - Moved the concrete WiFi platform implementation and radio helpers from ESPressio-WiFi into this repository while retaining `IWiFiPlatform` and WiFi-domain policy in ESPressio-WiFi.
 - Moved ESPressio-Persistence concrete storage backends here: Preferences/NVS, LittleFS, SPIFFS, FFat, SD/SPI and SD_MMC, together with their shared Arduino `fs::FS` implementation base.
 - ESPressio-ESP32 depends on the corresponding WiFi/Persistence working branches solely to implement their domain-owned contracts.
+- Concrete Arduino networking transports are being relocated here from ESPressio-Sockets while socket framing/protocol/domain infrastructure remains in ESPressio-Sockets.
 
 ### Naming
 - Concrete capabilities inside the ESPressio-ESP32 package do not redundantly repeat the hardware-platform name. Canonical names include `MemoryProvider`, `ExecutionProvider`, `SynchronizationProvider`, `QueueProvider`, `MonotonicClock`, `HighResolutionCounter`, `EntropySource` and the neutral Persistence backend names.
