@@ -72,26 +72,16 @@ private:
             return System::PlatformResult::Succeeded();
         }
 
-        System::GPIO::Pin GetPin() const noexcept override {
-            return _pin;
-        }
-
-        System::ProcessorAffinity GetAffinity() const noexcept override {
-            return _affinity;
-        }
-
-        bool IsEnabled() const noexcept override {
-            return _enabled;
-        }
+        System::GPIO::Pin GetPin() const noexcept override { return _pin; }
+        System::ProcessorAffinity GetAffinity() const noexcept override { return _affinity; }
+        bool IsEnabled() const noexcept override { return _enabled; }
 
         System::PlatformResult Enable() noexcept override {
             if (!_registered) {
                 return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
             }
             const auto result = gpio_intr_enable(static_cast<gpio_num_t>(_pin));
-            if (result == ESP_OK) {
-                _enabled = true;
-            }
+            if (result == ESP_OK) _enabled = true;
             return PlatformResultFromEspError(result);
         }
 
@@ -100,9 +90,7 @@ private:
                 return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
             }
             const auto result = gpio_intr_disable(static_cast<gpio_num_t>(_pin));
-            if (result == ESP_OK) {
-                _enabled = false;
-            }
+            if (result == ESP_OK) _enabled = false;
             return PlatformResultFromEspError(result);
         }
     };
@@ -186,16 +174,11 @@ private:
 
     static gpio_int_type_t NativeInterruptType(System::GPIO::InterruptTrigger trigger) noexcept {
         switch (trigger) {
-            case System::GPIO::InterruptTrigger::RisingEdge:
-                return GPIO_INTR_POSEDGE;
-            case System::GPIO::InterruptTrigger::FallingEdge:
-                return GPIO_INTR_NEGEDGE;
-            case System::GPIO::InterruptTrigger::AnyEdge:
-                return GPIO_INTR_ANYEDGE;
-            case System::GPIO::InterruptTrigger::LowLevel:
-                return GPIO_INTR_LOW_LEVEL;
-            case System::GPIO::InterruptTrigger::HighLevel:
-                return GPIO_INTR_HIGH_LEVEL;
+            case System::GPIO::InterruptTrigger::RisingEdge: return GPIO_INTR_POSEDGE;
+            case System::GPIO::InterruptTrigger::FallingEdge: return GPIO_INTR_NEGEDGE;
+            case System::GPIO::InterruptTrigger::AnyEdge: return GPIO_INTR_ANYEDGE;
+            case System::GPIO::InterruptTrigger::LowLevel: return GPIO_INTR_LOW_LEVEL;
+            case System::GPIO::InterruptTrigger::HighLevel: return GPIO_INTR_HIGH_LEVEL;
         }
         return GPIO_INTR_DISABLE;
     }
@@ -235,18 +218,14 @@ public:
         native.pull_up_en =
             configuration.PullMode == System::GPIO::Pull::Up ||
             configuration.PullMode == System::GPIO::Pull::UpDown
-                ? GPIO_PULLUP_ENABLE
-                : GPIO_PULLUP_DISABLE;
+                ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
         native.pull_down_en =
             configuration.PullMode == System::GPIO::Pull::Down ||
             configuration.PullMode == System::GPIO::Pull::UpDown
-                ? GPIO_PULLDOWN_ENABLE
-                : GPIO_PULLDOWN_DISABLE;
+                ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE;
 
         auto result = PlatformResultFromEspError(gpio_config(&native));
-        if (!result) {
-            return result;
-        }
+        if (!result) return result;
 
         if (configuration.DirectionMode != System::GPIO::Direction::Input) {
             result = Write(pin, configuration.InitialState);
@@ -281,7 +260,7 @@ public:
         return System::PlatformResult::Succeeded();
     }
 
-    System::GPIO::InterruptHandle CreateInterrupt(
+    System::GPIO::InterruptCreationResult CreateInterrupt(
         System::GPIO::Pin pin,
         const System::GPIO::InterruptConfiguration& configuration,
         System::GPIO::InterruptCallback callback,
@@ -289,38 +268,32 @@ public:
     ) override {
         const auto nativePin = static_cast<gpio_num_t>(pin);
         if (!GPIO_IS_VALID_GPIO(nativePin) || callback == nullptr) {
-            return nullptr;
+            return {System::PlatformResult::Failed(System::PlatformStatus::InvalidArgument)};
         }
 
         const auto service = EnsureInterruptService(configuration.Affinity);
-        if (!service) {
-            return nullptr;
-        }
+        if (!service) return {service};
 
-        if (gpio_set_intr_type(nativePin, NativeInterruptType(configuration.Trigger)) != ESP_OK) {
-            return nullptr;
-        }
+        const auto typeResult = PlatformResultFromEspError(
+            gpio_set_intr_type(nativePin, NativeInterruptType(configuration.Trigger))
+        );
+        if (!typeResult) return {typeResult};
+
         (void)gpio_intr_disable(nativePin);
-
         auto interrupt = std::make_unique<Interrupt>(
             pin,
             configuration.Affinity,
             callback,
             context
         );
-        if (!interrupt->Register(configuration.StartEnabled)) {
-            return nullptr;
-        }
-        return interrupt;
+        const auto registration = interrupt->Register(configuration.StartEnabled);
+        if (!registration) return {registration};
+
+        return {System::PlatformResult::Succeeded(), std::move(interrupt)};
     }
 
-    bool SupportsInterrupts() const noexcept override {
-        return true;
-    }
-
-    bool SupportsInterruptAffinity() const noexcept override {
-        return true;
-    }
+    bool SupportsInterrupts() const noexcept override { return true; }
+    bool SupportsInterruptAffinity() const noexcept override { return true; }
 };
 
 inline ESP32GPIOController& GPIOController() noexcept {
