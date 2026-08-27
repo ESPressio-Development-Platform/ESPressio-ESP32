@@ -5,7 +5,7 @@ This file records changes made during the platform-abstraction tranche tracked b
 ## 2026-08-27
 
 ### Execution
-- Added an ESP32 `IExecutionProvider` backed by FreeRTOS tasks.
+- Added an `IExecutionProvider` backed by FreeRTOS tasks.
 - Native task handles remain inside ESPressio-ESP32; higher-level libraries consume opaque System execution handles.
 - Task creation supports requested processor affinity, priority and stack sizing.
 - Current-execution identity, minimum-free-stack telemetry, processor-count discovery, sleep and yield are mapped to FreeRTOS here.
@@ -16,7 +16,7 @@ This file records changes made during the platform-abstraction tranche tracked b
 - Added a FreeRTOS-backed bounded message-queue provider, including callback/ISR-safe enqueue support.
 
 ### Clocking
-- Added an ESP32 monotonic clock backed by `esp_timer_get_time()`.
+- Added a monotonic clock backed by `esp_timer_get_time()`.
 - Added an ESP-IDF GPTimer-backed high-resolution counter provider.
 - `esp_err_t` values are translated to `PlatformResult` and retained only as optional native diagnostic codes.
 
@@ -24,22 +24,28 @@ This file records changes made during the platform-abstraction tranche tracked b
 - Added an ESP-IDF GPIO controller for configuration, reads and writes.
 - Added RAII interrupt registrations using the ESP-IDF GPIO ISR service.
 - Specific CPU/core affinity can be requested. Because the ESP-IDF GPIO ISR service itself has a service-core affinity, the first installed GPIO interrupt service establishes that core; a later incompatible affinity request reports `Conflict` rather than silently changing behaviour.
-- Added an Arduino GPIO implementation for Arduino-ESP32 applications. It implements the same System contract but explicitly reports specific interrupt affinity as unsupported.
+- Added an Arduino GPIO implementation. It implements the same System contract but explicitly reports specific interrupt affinity as unsupported.
 - Interrupt creation preserves an explicit `PlatformResult` alongside the owned RAII interrupt handle.
 
 ### Entropy
-- Added an ESP32 entropy provider backed by `esp_fill_random()`.
+- Added an entropy source backed by `esp_fill_random()`.
 - The provider advertises cryptographic suitability through the System entropy contract.
-- ESPressio-Security now consumes this provider rather than calling the ESP32 random API directly.
+- ESPressio-Security now consumes this provider rather than calling the native random API directly.
 
 ### Byte I/O
 - Added Arduino `Stream`/`Print` adapters implementing System byte-input/output contracts.
 - Framework-specific stream objects therefore remain at the application/platform boundary while Serial logging and console facilities can consume portable byte interfaces.
 
 ### Domain platform implementations
-- Moved the concrete ESP32 WiFi platform implementation and ESP32 radio helpers from ESPressio-WiFi into this repository while retaining `IWiFiPlatform` and WiFi-domain policy in ESPressio-WiFi.
-- Moved ESPressio-Persistence concrete ESP32 storage backends here: Preferences/NVS, LittleFS, SPIFFS, FFat, SD/SPI and SD_MMC, together with their shared Arduino `fs::FS` implementation base.
+- Moved the concrete WiFi platform implementation and radio helpers from ESPressio-WiFi into this repository while retaining `IWiFiPlatform` and WiFi-domain policy in ESPressio-WiFi.
+- Moved ESPressio-Persistence concrete storage backends here: Preferences/NVS, LittleFS, SPIFFS, FFat, SD/SPI and SD_MMC, together with their shared Arduino `fs::FS` implementation base.
 - ESPressio-ESP32 depends on the corresponding WiFi/Persistence working branches solely to implement their domain-owned contracts.
+
+### Naming
+- Concrete capabilities inside the ESPressio-ESP32 package do not redundantly repeat the hardware-platform name. Canonical names include `MemoryProvider`, `ExecutionProvider`, `SynchronizationProvider`, `QueueProvider`, `MonotonicClock`, `HighResolutionCounter`, `EntropySource` and the neutral Persistence backend names.
+- Where multiple implementation APIs coexist, the API is used as the discriminator rather than the hardware platform. GPIO therefore provides `IDFGPIOController` and `ArduinoGPIOController`.
+- Removed the earlier platform-qualified provider/backend files rather than retaining aliases or compatibility names.
+- The repository/package identity and its top-level `ESPressio_ESP32.hpp` umbrella remain ESP32-specific by definition; that package context is not repeated in the contained capability names.
 
 ### Provider bootstrap
 - Expanded `ESPressio_ESP32.hpp` to expose the current System providers.
@@ -48,4 +54,4 @@ This file records changes made during the platform-abstraction tranche tracked b
 
 ## Boundary rule
 
-ESP-IDF, Arduino-ESP32 and FreeRTOS types/calls belong in this repository when satisfying portable System abstractions or higher-level domain interfaces. Higher-level libraries should not reproduce those calls when an ESPressio abstraction already exists.
+ESP-IDF, Arduino and FreeRTOS types/calls belong in this repository when satisfying portable System abstractions or higher-level domain interfaces. Higher-level libraries should not reproduce those calls when an ESPressio abstraction already exists.
