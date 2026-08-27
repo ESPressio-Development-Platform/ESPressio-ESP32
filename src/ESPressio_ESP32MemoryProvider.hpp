@@ -7,7 +7,7 @@
 #include <esp_idf_version.h>
 #include <ESPressio_Memory.hpp>
 
-namespace ESPressio::ESP32 {
+namespace ESPressio::ESP32Platform {
 
 class ESP32MemoryProvider final : public System::Memory::IMemoryProvider {
 public:
@@ -71,4 +71,4 @@ inline System::Memory::IMemoryProvider* InstallMemoryProvider() noexcept {
     return System::Memory::SetProvider(&MemoryProvider());
 }
 
-} // namespace ESPressio::ESP32
+} // namespace ESPressio::ESP32Platform
