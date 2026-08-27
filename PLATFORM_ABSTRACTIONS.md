@@ -21,6 +21,7 @@ This file records changes made during the platform-abstraction tranche tracked b
 - Older ESP-IDF generations without the GPTimer driver still install the monotonic clock and report the dedicated high-resolution-counter capability as unavailable rather than failing the platform package to compile.
 - Added `HasGPTimerHighResolutionCounter()` for platform-side capability inspection without exposing a native GPTimer type.
 - `esp_err_t` values are translated to `PlatformResult` and retained only as optional native diagnostic codes.
+- The provider includes the canonical System clock contract via `ESPressio_SystemClock.hpp`, avoiding the historical `ESPressio_Clock.hpp` header-name collision with ESPressio-Timing in combined dependency graphs.
 
 ### GPIO
 - Added an ESP-IDF GPIO controller for configuration, reads and writes.
