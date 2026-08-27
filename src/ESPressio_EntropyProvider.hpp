@@ -5,7 +5,7 @@
 
 #include <esp_system.h>
 
-#include <ESPressio_Entropy.hpp>
+#include <ESPressio_SystemPlatformEntropy.hpp>
 
 namespace ESPressio::ESP32Platform {
 
