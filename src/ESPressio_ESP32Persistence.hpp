@@ -3,10 +3,10 @@
 #include <ESPressio_Persistence.hpp>
 
 #if defined(ARDUINO_ARCH_ESP32)
-#include "ESPressio_ESP32LittleFSStorage.hpp"
-#include "ESPressio_ESP32SPIFFSStorage.hpp"
-#include "ESPressio_ESP32FFatStorage.hpp"
-#include "ESPressio_ESP32PreferencesStorage.hpp"
-#include "ESPressio_ESP32SDStorage.hpp"
-#include "ESPressio_ESP32SDMMCStorage.hpp"
+#include "ESPressio_LittleFSStorage.hpp"
+#include "ESPressio_SPIFFSStorage.hpp"
+#include "ESPressio_FFatStorage.hpp"
+#include "ESPressio_PreferencesStorage.hpp"
+#include "ESPressio_SDStorage.hpp"
+#include "ESPressio_SDMMCStorage.hpp"
 #endif
