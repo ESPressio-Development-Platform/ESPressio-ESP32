@@ -36,6 +36,16 @@ public:
             };
         }
 
+        if (
+            configuration.Affinity.IsSpecific() &&
+            static_cast<uint32_t>(configuration.Affinity.Processor) >= ProcessorCount()
+        ) {
+            return {
+                PlatformResult::Failed(PlatformStatus::InvalidArgument),
+                InvalidExecutionHandle
+            };
+        }
+
         TaskHandle_t handle = nullptr;
         BaseType_t created = pdFAIL;
 
@@ -101,8 +111,18 @@ public:
         return static_cast<uint32_t>(uxTaskGetStackHighWaterMark(Native(handle)));
     }
 
+    uint32_t ProcessorCount() const noexcept override {
+#if defined(portNUM_PROCESSORS)
+        return portNUM_PROCESSORS > 0 ? static_cast<uint32_t>(portNUM_PROCESSORS) : 1U;
+#elif defined(configNUMBER_OF_CORES)
+        return configNUMBER_OF_CORES > 0 ? static_cast<uint32_t>(configNUMBER_OF_CORES) : 1U;
+#else
+        return 1U;
+#endif
+    }
+
     void SleepMilliseconds(uint32_t milliseconds) override {
-        TickType ticks = pdMS_TO_TICKS(milliseconds);
+        TickType_t ticks = pdMS_TO_TICKS(milliseconds);
         if (milliseconds != 0 && ticks == 0) {
             ticks = 1;
         }
@@ -114,7 +134,7 @@ public:
     }
 
     bool SupportsProcessorAffinity() const noexcept override {
-        return true;
+        return ProcessorCount() > 1;
     }
 };
 
