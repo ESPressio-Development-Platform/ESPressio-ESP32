@@ -4,7 +4,7 @@
 #include <ESPressio_Memory.hpp>
 
 void setup() {
-    ESPressio::ESP32::InstallMemoryProvider();
+    ESPressio::ESP32Platform::InstallMemoryProvider();
 
     ESPressio::System::Memory::Vector<
         int,
