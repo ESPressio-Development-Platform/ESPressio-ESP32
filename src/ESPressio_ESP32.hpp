@@ -6,7 +6,7 @@
 #include "ESPressio_ESP32QueueProvider.hpp"
 #include "ESPressio_ESP32ClockProvider.hpp"
 #include "ESPressio_ESP32GPIOProvider.hpp"
-#include "ESPressio_ESP32EntropyProvider.hpp"
+#include "ESPressio_EntropyProvider.hpp"
 
 #if defined(ARDUINO)
 #include "ESPressio_ArduinoGPIOProvider.hpp"
