@@ -3,6 +3,7 @@
 #include "ESPressio_ESP32MemoryProvider.hpp"
 #include "ESPressio_ESP32ExecutionProvider.hpp"
 #include "ESPressio_ESP32SynchronizationProvider.hpp"
+#include "ESPressio_ESP32QueueProvider.hpp"
 #include "ESPressio_ESP32ClockProvider.hpp"
 #include "ESPressio_ESP32GPIOProvider.hpp"
 
@@ -16,6 +17,7 @@ inline void InstallSystemProviders() noexcept {
     InstallMemoryProvider();
     InstallExecutionProvider();
     InstallSynchronizationProvider();
+    InstallQueueProvider();
     InstallClockProviders();
     InstallGPIOController();
 }
