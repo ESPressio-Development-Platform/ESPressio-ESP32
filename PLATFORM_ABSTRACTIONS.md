@@ -21,7 +21,7 @@ This file records changes made during the platform-abstraction tranche tracked b
 - Older ESP-IDF generations without the GPTimer driver still install the monotonic clock and report the dedicated high-resolution-counter capability as unavailable rather than failing the platform package to compile.
 - Added `HasGPTimerHighResolutionCounter()` for platform-side capability inspection without exposing a native GPTimer type.
 - `esp_err_t` values are translated to `PlatformResult` and retained only as optional native diagnostic codes.
-- The provider includes the canonical System clock contract via `ESPressio_SystemClock.hpp`, avoiding the historical `ESPressio_Clock.hpp` header-name collision with ESPressio-Timing in combined dependency graphs.
+- Platform code uses `ESPressio_SystemPlatformClock.hpp`, avoiding the historical clock-header collision with ESPressio-Timing in combined dependency graphs.
 
 ### GPIO
 - Added an ESP-IDF GPIO controller for configuration, reads and writes.
@@ -46,7 +46,7 @@ This file records changes made during the platform-abstraction tranche tracked b
 - Relocated Arduino `UDPEventTransport`, `TCPClientEventTransport`, `TCPServerEventTransport`, `TLSEventTransport`, `WebSocketClientEventTransport`, `WebSocketServerEventTransport` and `MQTTEventTransport` implementations from ESPressio-Sockets into this repository.
 - The relocated TCP/TLS/MQTT adapters use the System monotonic clock for reconnect timing and use standard C++ strings in their public configuration rather than Arduino utility types.
 - Added `ESPressio_ESP32SocketTransports.hpp` as the application-facing umbrella for all relocated socket Event transports.
-- Declared Sockets, Event, Links2004 WebSockets and PubSubClient dependencies directly in this package so concrete adapters do not rely on accidental transitive dependencies.
+- Socket/Event/WebSocket/MQTT dependencies remain opt-in at the consuming application/integration layer; they are deliberately not mandatory dependencies of the ESPressio-ESP32 provider package merely because optional adapter headers live here.
 - Socket endpoint values, framing, worker policy, sessions and Command/Security/Timing/Event transport semantics remain owned by ESPressio-Sockets.
 
 ### Naming
