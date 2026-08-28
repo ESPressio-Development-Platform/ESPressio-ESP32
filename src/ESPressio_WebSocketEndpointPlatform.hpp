@@ -544,13 +544,21 @@ private:
         ConnectionList _connections;
     };
 
+    static std::shared_ptr<BindingState> MakeBindingState(
+        IWebSocketEndpointPlatformSink* sink
+    ) {
+        auto state = System::Memory::MakeShared<
+            BindingState,
+            System::Memory::MemoryPolicy::ExternalPreferred
+        >();
+        state->SetSink(sink);
+        return state;
+    }
+
 public:
     explicit ESP32WebSocketEndpointPlatform(ESP32HttpServerPlatform& httpPlatform)
         : _httpPlatform(httpPlatform),
-          _state(System::Memory::MakeShared<
-              BindingState,
-              System::Memory::MemoryPolicy::ExternalPreferred
-          >()) {}
+          _state(MakeBindingState(nullptr)) {}
 
     ~ESP32WebSocketEndpointPlatform() override {
         (void)Unbind();
@@ -561,6 +569,7 @@ public:
     ESP32WebSocketEndpointPlatform& operator=(const ESP32WebSocketEndpointPlatform&) = delete;
 
     void SetSink(IWebSocketEndpointPlatformSink* sink) override {
+        _sink = sink;
         _state->SetSink(sink);
     }
 
@@ -579,13 +588,20 @@ public:
     }
 
     WebResult Unbind() override {
-        if (!IsBound()) {
-            _httpPlatform.ReleaseWebSocketBinding(_state);
+        auto retired = _state;
+        if (!retired->IsActive()) {
+            _httpPlatform.ReleaseWebSocketBinding(retired);
             return WebResult::Success();
         }
-        const auto closeResult = _state->CloseAll({1001, "endpoint unbound"});
-        _state->Deactivate();
-        _httpPlatform.ReleaseWebSocketBinding(_state);
+
+        const auto closeResult = retired->CloseAll({1001, "endpoint unbound"});
+        retired->Deactivate();
+        _httpPlatform.ReleaseWebSocketBinding(retired);
+
+        // Never reactivate a BindingState that may still be retained by the
+        // running native HTTP server as a handler user_ctx. A later Bind uses a
+        // fresh state and therefore cannot transiently re-enable a stale route.
+        _state = MakeBindingState(_sink);
         return closeResult;
     }
 
@@ -610,6 +626,7 @@ public:
 
 private:
     ESP32HttpServerPlatform& _httpPlatform;
+    IWebSocketEndpointPlatformSink* _sink = nullptr;
     std::shared_ptr<BindingState> _state;
 };
 
