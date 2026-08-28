@@ -533,37 +533,28 @@ private:
                     });
                 }
 
-                ConnectionPtr connection;
-                bool created = false;
-                {
-                    std::lock_guard<std::mutex> lock(_mutex);
-                    connection = FindConnectionLocked(socket);
-                    if (!connection) {
-                        connection = System::Memory::MakeShared<
-                            ESP32WebSocketConnection,
-                            System::Memory::MemoryPolicy::ExternalPreferred
-                        >(request.handle, socket, _sink);
-                        _connections.push_back(connection);
-                        created = true;
-                    }
-                    sink = _sink;
-                }
-                if (sink != nullptr && created) {
-                    sink->OnPlatformWebSocketActivity({
-                        WebSocketActivityKind::ConnectionCreated,
-                        connection->Id(),
-                        WebSocketFrameType::Text,
-                        0,
-                        WebResult::Success(),
-                        0,
-                        "ESP32 websocket connection object created"
-                    });
-                }
-                if (sink != nullptr) sink->OnPlatformWebSocketConnected(*connection);
+                auto connection = EnsureConnection(request, socket, "ESP32 websocket connection object created");
+                if (!connection) return ESP_FAIL;
                 return ESP_OK;
             }
 
             auto connection = FindConnection(socket);
+            if (!connection) {
+                // ESP-IDF versions that do not invoke the URI handler for the
+                // HTTP upgrade can deliver the first data/control frame before
+                // ESPressio has observed the native connection lifecycle.  At
+                // this point HTTPD already knows the socket is a WebSocket, so
+                // recover the ESPressio-side connection exactly once and then
+                // process the frame normally instead of rejecting the session.
+                if (request.handle != nullptr &&
+                    httpd_ws_get_fd_info(request.handle, socket) == HTTPD_WS_CLIENT_WEBSOCKET) {
+                    connection = EnsureConnection(
+                        request,
+                        socket,
+                        "ESP32 websocket connection recovered from first frame"
+                    );
+                }
+            }
             if (!connection) {
                 auto* sink = SnapshotSink();
                 if (sink != nullptr) {
@@ -793,6 +784,73 @@ private:
         }
 
     private:
+        ConnectionPtr EnsureConnection(
+            httpd_req_t& request,
+            int socket,
+            std::string_view detail
+        ) {
+            ConnectionPtr connection;
+            IWebSocketEndpointPlatformSink* sink = nullptr;
+            bool created = false;
+            try {
+                {
+                    std::lock_guard<std::mutex> lock(_mutex);
+                    connection = FindConnectionLocked(socket);
+                    if (!connection) {
+                        connection = System::Memory::MakeShared<
+                            ESP32WebSocketConnection,
+                            System::Memory::MemoryPolicy::ExternalPreferred
+                        >(request.handle, socket, _sink);
+                        _connections.push_back(connection);
+                        created = true;
+                    }
+                    sink = _sink;
+                }
+            } catch (const std::bad_alloc&) {
+                sink = SnapshotSink();
+                if (sink != nullptr) {
+                    sink->OnPlatformWebSocketActivity({
+                        WebSocketActivityKind::ReceiveFailed,
+                        static_cast<WebSocketConnectionId>(static_cast<uint32_t>(socket)),
+                        WebSocketFrameType::Binary,
+                        0,
+                        WebResult::Failure(WebError::ResourceExhausted),
+                        0,
+                        "websocket connection allocation failed"
+                    });
+                }
+                return {};
+            } catch (...) {
+                sink = SnapshotSink();
+                if (sink != nullptr) {
+                    sink->OnPlatformWebSocketActivity({
+                        WebSocketActivityKind::ReceiveFailed,
+                        static_cast<WebSocketConnectionId>(static_cast<uint32_t>(socket)),
+                        WebSocketFrameType::Binary,
+                        0,
+                        WebResult::Failure(WebError::PlatformFailure),
+                        0,
+                        "websocket connection construction failed"
+                    });
+                }
+                return {};
+            }
+
+            if (sink != nullptr && created) {
+                sink->OnPlatformWebSocketActivity({
+                    WebSocketActivityKind::ConnectionCreated,
+                    connection->Id(),
+                    WebSocketFrameType::Text,
+                    0,
+                    WebResult::Success(),
+                    0,
+                    detail
+                });
+                sink->OnPlatformWebSocketConnected(*connection);
+            }
+            return connection;
+        }
+
         ConnectionList SnapshotConnections() const {
             std::lock_guard<std::mutex> lock(_mutex);
             return _connections;
