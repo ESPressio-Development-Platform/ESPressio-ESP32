@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -106,6 +107,12 @@ inline bool HeaderNameEquals(std::string_view left, std::string_view right) noex
         if (std::tolower(a) != std::tolower(b)) return false;
     }
     return true;
+}
+
+inline bool IsFramingHeader(std::string_view name) noexcept {
+    return HeaderNameEquals(name, "Content-Length") ||
+           HeaderNameEquals(name, "Transfer-Encoding") ||
+           HeaderNameEquals(name, "Connection");
 }
 
 inline bool CopyHeaderName(
@@ -267,6 +274,9 @@ private:
         Header,
         System::Memory::MemoryPolicy::ExternalPreferred
     >;
+    using WorkingString = System::Memory::String<
+        System::Memory::MemoryPolicy::ExternalPreferred
+    >;
 
 public:
     ESP32HttpResponsePlatform(httpd_req_t& request, bool keepAlive)
@@ -281,6 +291,9 @@ public:
     WebResult SetHeader(std::string_view name, std::string_view value) override {
         if (_begun || name.empty()) {
             return WebResult::Failure(WebError::InvalidState);
+        }
+        if (Detail::IsFramingHeader(name)) {
+            return WebResult::Failure(WebError::InvalidConfiguration);
         }
         if (Detail::HeaderNameEquals(name, "Content-Type")) {
             _contentType.assign(value.begin(), value.end());
@@ -303,6 +316,14 @@ public:
     WebResult Begin(std::optional<std::size_t> contentLength) override {
         if (_begun) return WebResult::Failure(WebError::InvalidState);
         _expectedLength = contentLength;
+        _knownLengthFraming = contentLength.has_value();
+
+        if (_knownLengthFraming) {
+            const auto result = SendKnownLengthHeaders(*contentLength);
+            if (!result) return result;
+            _begun = true;
+            return WebResult::Success();
+        }
 
         auto result = httpd_resp_set_status(
             &_request,
@@ -334,12 +355,33 @@ public:
         if (!_begun || _completed || data == nullptr || size == 0) {
             return WebResult::Failure(WebError::InvalidState);
         }
-        const auto result = httpd_resp_send_chunk(
-            &_request,
-            reinterpret_cast<const char*>(data),
-            size
-        );
-        if (result != ESP_OK) return Detail::ESP32HttpResult(result);
+        if (_expectedLength.has_value() &&
+            _bytesWritten + size > *_expectedLength) {
+            return WebResult::Failure(WebError::ProtocolError);
+        }
+
+        if (static_cast<httpd_method_t>(_request.method) == HTTP_HEAD) {
+            _bytesWritten += size;
+            return WebResult::Success();
+        }
+
+        WebResult result;
+        if (_knownLengthFraming) {
+            result = SendRaw(
+                reinterpret_cast<const char*>(data),
+                size
+            );
+        } else {
+            const auto native = httpd_resp_send_chunk(
+                &_request,
+                reinterpret_cast<const char*>(data),
+                size
+            );
+            result = native == ESP_OK
+                ? WebResult::Success()
+                : Detail::ESP32HttpResult(native);
+        }
+        if (!result) return result;
         _bytesWritten += size;
         return WebResult::Success();
     }
@@ -351,12 +393,14 @@ public:
                 : WebResult::Failure(WebError::InvalidState);
         }
         if (_expectedLength.has_value() &&
-            _request.method != HTTP_HEAD &&
             _bytesWritten != *_expectedLength) {
             return WebResult::Failure(WebError::ProtocolError);
         }
-        const auto result = httpd_resp_send_chunk(&_request, nullptr, 0);
-        if (result != ESP_OK) return Detail::ESP32HttpResult(result);
+
+        if (!_knownLengthFraming) {
+            const auto result = httpd_resp_send_chunk(&_request, nullptr, 0);
+            if (result != ESP_OK) return Detail::ESP32HttpResult(result);
+        }
         _completed = true;
         return WebResult::Success();
     }
@@ -364,14 +408,69 @@ public:
     void Abort() noexcept override { _completed = true; }
 
 private:
+    WebResult SendRaw(const char* data, std::size_t size) {
+        if (data == nullptr && size != 0) {
+            return WebResult::Failure(WebError::InvalidConfiguration);
+        }
+        while (size != 0) {
+            const int sent = httpd_send(&_request, data, size);
+            if (sent <= 0) {
+                return WebResult::Failure(WebError::ConnectionFailure, sent);
+            }
+            data += sent;
+            size -= static_cast<std::size_t>(sent);
+        }
+        return WebResult::Success();
+    }
+
+    WebResult SendKnownLengthHeaders(std::size_t contentLength) {
+        WorkingString headers;
+        headers.reserve(128 + _contentType.size() + (_headers.size() * 32));
+        headers.append("HTTP/1.1 ");
+        headers.append(Detail::ESP32HttpStatusText(_status));
+        headers.append("\r\nContent-Length: ");
+
+        char lengthText[32]{};
+        const int lengthCharacters = std::snprintf(
+            lengthText,
+            sizeof(lengthText),
+            "%llu",
+            static_cast<unsigned long long>(contentLength)
+        );
+        if (lengthCharacters <= 0 ||
+            static_cast<std::size_t>(lengthCharacters) >= sizeof(lengthText)) {
+            return WebResult::Failure(WebError::PlatformFailure);
+        }
+        headers.append(lengthText, static_cast<std::size_t>(lengthCharacters));
+        headers.append("\r\n");
+
+        if (!_contentType.empty()) {
+            headers.append("Content-Type: ");
+            headers.append(_contentType);
+            headers.append("\r\n");
+        }
+        for (const auto& header : _headers) {
+            headers.append(header.Name);
+            headers.append(": ");
+            headers.append(header.Value);
+            headers.append("\r\n");
+        }
+        if (!_keepAlive) {
+            headers.append("Connection: close\r\n");
+        }
+        headers.append("\r\n");
+        return SendRaw(headers.data(), headers.size());
+    }
+
     httpd_req_t& _request;
     bool _keepAlive = true;
     bool _begun = false;
     bool _completed = false;
+    bool _knownLengthFraming = false;
     HttpStatus _status = HttpStatus::Ok;
     std::optional<std::size_t> _expectedLength;
     std::size_t _bytesWritten = 0;
-    System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred> _contentType;
+    WorkingString _contentType;
     HeaderList _headers;
 };
 
