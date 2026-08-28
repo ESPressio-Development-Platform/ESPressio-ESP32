@@ -21,6 +21,9 @@
 #if __has_include(<ESPressio_Dns.hpp>)
 #include "ESPressio_DnsServerPlatform.hpp"
 #endif
+#if defined(CONFIG_HTTPD_WS_SUPPORT) && __has_include(<ESPressio_WebSocketEndpoint.hpp>)
+#include "ESPressio_WebSocketEndpointPlatform.hpp"
+#endif
 #endif
 
 namespace ESPressio::ESP32Platform {
