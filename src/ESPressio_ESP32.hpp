@@ -18,6 +18,9 @@
 #if __has_include(<ESPressio_HttpServer.hpp>)
 #include "ESPressio_HttpServerPlatform.hpp"
 #endif
+#if __has_include(<ESPressio_Dns.hpp>)
+#include "ESPressio_DnsServerPlatform.hpp"
+#endif
 #endif
 
 namespace ESPressio::ESP32Platform {
