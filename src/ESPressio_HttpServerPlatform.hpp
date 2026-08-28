@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -474,6 +475,20 @@ private:
     HeaderList _headers;
 };
 
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+class IESP32HttpWebSocketBinding {
+public:
+    virtual ~IESP32HttpWebSocketBinding() = default;
+    virtual bool IsActive() const noexcept = 0;
+    virtual const char* PathCString() const noexcept = 0;
+    virtual const char* ProtocolCString() const noexcept = 0;
+    virtual esp_err_t HandleWebSocketRequest(httpd_req_t& request) = 0;
+    virtual void OnHttpSessionClosed(int socket) = 0;
+};
+
+using ESP32HttpWebSocketBindingPtr = std::shared_ptr<IESP32HttpWebSocketBinding>;
+#endif
+
 class ESP32HttpServerPlatform final : public IHttpServerPlatform {
 public:
     ESP32HttpServerPlatform() = default;
@@ -483,9 +498,14 @@ public:
     ESP32HttpServerPlatform& operator=(const ESP32HttpServerPlatform&) = delete;
 
     WebCapabilities Capabilities() const noexcept override {
-        return ToCapabilities(WebCapability::Http) |
-               ToCapabilities(WebCapability::ChunkedResponses) |
-               ToCapabilities(WebCapability::PersistentConnections);
+        WebCapabilities capabilities =
+            ToCapabilities(WebCapability::Http) |
+            ToCapabilities(WebCapability::ChunkedResponses) |
+            ToCapabilities(WebCapability::PersistentConnections);
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        capabilities |= ToCapabilities(WebCapability::WebSocketServer);
+#endif
+        return capabilities;
     }
 
     WebResult Initialize(
@@ -502,10 +522,61 @@ public:
         return WebResult::Success();
     }
 
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+    WebResult AddWebSocketBinding(const ESP32HttpWebSocketBindingPtr& binding) {
+        if (!binding || !binding->IsActive() || binding->PathCString() == nullptr ||
+            binding->PathCString()[0] != '/') {
+            return WebResult::Failure(WebError::InvalidConfiguration);
+        }
+
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_server != nullptr) return WebResult::Failure(WebError::InvalidState);
+
+        for (const auto& existing : _webSocketBindings) {
+            if (!existing || !existing->IsActive()) continue;
+            if (existing.get() == binding.get()) return WebResult::Success();
+            if (std::strcmp(existing->PathCString(), binding->PathCString()) == 0) {
+                return WebResult::Failure(WebError::InvalidConfiguration);
+            }
+        }
+        _webSocketBindings.push_back(binding);
+        return WebResult::Success();
+    }
+
+    void ReleaseWebSocketBinding(const ESP32HttpWebSocketBindingPtr& binding) noexcept {
+        if (!binding) return;
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_server != nullptr) return;
+        _webSocketBindings.erase(
+            std::remove_if(
+                _webSocketBindings.begin(),
+                _webSocketBindings.end(),
+                [&](const ESP32HttpWebSocketBindingPtr& candidate) {
+                    return !candidate || candidate.get() == binding.get() || !candidate->IsActive();
+                }
+            ),
+            _webSocketBindings.end()
+        );
+    }
+#endif
+
     WebResult Start() override {
         std::lock_guard<std::mutex> lock(_mutex);
         if (_server != nullptr) return WebResult::Failure(WebError::AlreadyRunning);
         if (_dispatcher == nullptr) return WebResult::Failure(WebError::InvalidState);
+
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        _webSocketBindings.erase(
+            std::remove_if(
+                _webSocketBindings.begin(),
+                _webSocketBindings.end(),
+                [](const ESP32HttpWebSocketBindingPtr& binding) {
+                    return !binding || !binding->IsActive();
+                }
+            ),
+            _webSocketBindings.end()
+        );
+#endif
 
         httpd_config_t native = HTTPD_DEFAULT_CONFIG();
         native.server_port = _configuration.Port;
@@ -513,15 +584,47 @@ public:
             _configuration.MaximumConnections + 3,
             0xffffu
         ));
-        native.max_uri_handlers = SupportedMethodCount;
+        native.max_uri_handlers = static_cast<uint16_t>(
+            SupportedMethodCount
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+            + _webSocketBindings.size()
+#endif
+        );
         native.uri_match_fn = httpd_uri_match_wildcard;
         native.lru_purge_enable = true;
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        native.global_user_ctx = this;
+        native.global_user_ctx_free_fn = &IgnoreGlobalContextFree;
+        native.close_fn = &HandleSessionClosed;
+#endif
 
         const auto started = httpd_start(&_server, &native);
         if (started != ESP_OK) {
             _server = nullptr;
             return Detail::ESP32HttpResult(started);
         }
+
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        for (const auto& binding : _webSocketBindings) {
+            httpd_uri_t handler{};
+            handler.uri = binding->PathCString();
+            handler.method = HTTP_GET;
+            handler.handler = &DispatchWebSocketRequest;
+            handler.user_ctx = binding.get();
+            handler.is_websocket = true;
+            handler.handle_ws_control_frames = true;
+            const char* protocol = binding->ProtocolCString();
+            handler.supported_subprotocol =
+                protocol != nullptr && protocol[0] != '\0' ? protocol : nullptr;
+
+            const auto registered = httpd_register_uri_handler(_server, &handler);
+            if (registered != ESP_OK) {
+                (void)httpd_stop(_server);
+                _server = nullptr;
+                return Detail::ESP32HttpResult(registered);
+            }
+        }
+#endif
 
         for (const auto method : SupportedMethods) {
             httpd_uri_t handler{};
@@ -547,7 +650,23 @@ public:
             server = _server;
             _server = nullptr;
         }
-        return Detail::ESP32HttpResult(httpd_stop(server));
+        const auto stopped = httpd_stop(server);
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _webSocketBindings.erase(
+                std::remove_if(
+                    _webSocketBindings.begin(),
+                    _webSocketBindings.end(),
+                    [](const ESP32HttpWebSocketBindingPtr& binding) {
+                        return !binding || !binding->IsActive();
+                    }
+                ),
+                _webSocketBindings.end()
+            );
+        }
+#endif
+        return Detail::ESP32HttpResult(stopped);
     }
 
     void Reset() noexcept override {
@@ -555,6 +674,18 @@ public:
         std::lock_guard<std::mutex> lock(_mutex);
         _dispatcher = nullptr;
         _configuration = {};
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        _webSocketBindings.erase(
+            std::remove_if(
+                _webSocketBindings.begin(),
+                _webSocketBindings.end(),
+                [](const ESP32HttpWebSocketBindingPtr& binding) {
+                    return !binding || !binding->IsActive();
+                }
+            ),
+            _webSocketBindings.end()
+        );
+#endif
     }
 
 private:
@@ -577,6 +708,40 @@ private:
             ->HandleRequest(*request);
     }
 
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+    static esp_err_t DispatchWebSocketRequest(httpd_req_t* request) {
+        if (request == nullptr || request->user_ctx == nullptr) return ESP_FAIL;
+        auto* binding = static_cast<IESP32HttpWebSocketBinding*>(request->user_ctx);
+        return binding->IsActive()
+            ? binding->HandleWebSocketRequest(*request)
+            : ESP_FAIL;
+    }
+
+    static void IgnoreGlobalContextFree(void*) {}
+
+    static void HandleSessionClosed(httpd_handle_t handle, int socket) {
+        auto* server = static_cast<ESP32HttpServerPlatform*>(
+            httpd_get_global_user_ctx(handle)
+        );
+        if (server != nullptr) server->NotifySessionClosed(socket);
+        close(socket);
+    }
+
+    void NotifySessionClosed(int socket) {
+        System::Memory::Vector<
+            ESP32HttpWebSocketBindingPtr,
+            System::Memory::MemoryPolicy::ExternalPreferred
+        > bindings;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            bindings = _webSocketBindings;
+        }
+        for (const auto& binding : bindings) {
+            if (binding) binding->OnHttpSessionClosed(socket);
+        }
+    }
+#endif
+
     esp_err_t HandleRequest(httpd_req_t& request) {
         IHttpRequestDispatcher* dispatcher = nullptr;
         bool keepAlive = true;
@@ -598,6 +763,12 @@ private:
     httpd_handle_t _server = nullptr;
     IHttpRequestDispatcher* _dispatcher = nullptr;
     HttpServerConfiguration _configuration{};
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+    System::Memory::Vector<
+        ESP32HttpWebSocketBindingPtr,
+        System::Memory::MemoryPolicy::ExternalPreferred
+    > _webSocketBindings;
+#endif
 };
 
 } // namespace ESPressio::Web
