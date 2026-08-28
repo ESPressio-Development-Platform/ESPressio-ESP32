@@ -13,6 +13,7 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <string_view>
 
 #include <esp_err.h>
@@ -67,12 +68,18 @@ private:
     >;
 
     struct SendOperation final {
+        System::Memory::IMemoryProvider* AllocationProvider = nullptr;
         httpd_handle_t Server = nullptr;
         int Socket = -1;
         bool CloseAfterSend = false;
         ByteBuffer Payload;
         httpd_ws_frame_t Frame{};
     };
+
+    using SendOperationAllocator = System::Memory::Allocator<
+        SendOperation,
+        System::Memory::MemoryPolicy::ExternalPreferred
+    >;
 
 public:
     ESP32WebSocketConnection(httpd_handle_t server, int socket)
@@ -224,12 +231,42 @@ public:
     }
 
 private:
+    static SendOperation* AllocateSendOperation() {
+        SendOperationAllocator allocator;
+        SendOperation* operation = allocator.allocate(1);
+        try {
+            ::new (static_cast<void*>(operation)) SendOperation();
+        } catch (...) {
+            allocator.deallocate(operation, 1);
+            throw;
+        }
+        operation->AllocationProvider = allocator.Provider();
+        return operation;
+    }
+
+    static void DestroySendOperation(SendOperation* operation) noexcept {
+        if (operation == nullptr) return;
+        auto* provider = operation->AllocationProvider;
+        operation->~SendOperation();
+        if (provider != nullptr) {
+            provider->Deallocate(
+                operation,
+                sizeof(SendOperation),
+                alignof(SendOperation),
+                System::Memory::MemoryPolicy::ExternalPreferred
+            );
+        }
+    }
+
     static void SendCompleted(esp_err_t, int, void* argument) {
-        std::unique_ptr<SendOperation> operation(
-            static_cast<SendOperation*>(argument)
-        );
-        if (operation && operation->CloseAfterSend && operation->Server != nullptr) {
-            (void)httpd_sess_trigger_close(operation->Server, operation->Socket);
+        auto* operation = static_cast<SendOperation*>(argument);
+        if (operation == nullptr) return;
+        const bool closeAfterSend = operation->CloseAfterSend;
+        const auto server = operation->Server;
+        const int socket = operation->Socket;
+        DestroySendOperation(operation);
+        if (closeAfterSend && server != nullptr) {
+            (void)httpd_sess_trigger_close(server, socket);
         }
     }
 
@@ -263,7 +300,15 @@ private:
             return WebResult::Failure(WebError::Closed);
         }
 
-        std::unique_ptr<SendOperation> operation(new SendOperation());
+        SendOperation* operation = nullptr;
+        try {
+            operation = AllocateSendOperation();
+        } catch (const std::bad_alloc&) {
+            return WebResult::Failure(WebError::ResourceExhausted);
+        } catch (...) {
+            return WebResult::Failure(WebError::PlatformFailure);
+        }
+
         operation->Server = _server;
         operation->Socket = _socket;
         operation->CloseAfterSend = closeAfterSend;
@@ -276,16 +321,15 @@ private:
             : operation->Payload.data();
         operation->Frame.len = operation->Payload.size();
 
-        SendOperation* raw = operation.release();
         const auto queued = httpd_ws_send_data_async(
             _server,
             _socket,
-            &raw->Frame,
+            &operation->Frame,
             &SendCompleted,
-            raw
+            operation
         );
         if (queued != ESP_OK) {
-            delete raw;
+            DestroySendOperation(operation);
             return Detail::ESP32WebSocketResult(queued);
         }
         return WebResult::Success();
@@ -361,9 +405,9 @@ private:
             if (data == nullptr || size == 0) {
                 return WebResult::Failure(WebError::InvalidConfiguration);
             }
-            const auto connections = SnapshotConnections();
+            std::lock_guard<std::mutex> lock(_mutex);
             WebResult finalResult = WebResult::Success();
-            for (const auto& connection : connections) {
+            for (const auto& connection : _connections) {
                 if (!connection) continue;
                 const auto result = connection->SendBinary(data, size);
                 if (!result) finalResult = result;
@@ -372,9 +416,9 @@ private:
         }
 
         WebResult BroadcastText(std::string_view text) {
-            const auto connections = SnapshotConnections();
+            std::lock_guard<std::mutex> lock(_mutex);
             WebResult finalResult = WebResult::Success();
-            for (const auto& connection : connections) {
+            for (const auto& connection : _connections) {
                 if (!connection) continue;
                 const auto result = connection->SendText(text);
                 if (!result) finalResult = result;
