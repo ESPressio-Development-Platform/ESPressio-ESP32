@@ -112,9 +112,9 @@ private:
         }
     };
 
-    class Connection final : public IWebSocketConnection {
+    class ClientConnection final : public IWebSocketConnection {
     public:
-        Connection(ESP32WebSocketClientPlatform& owner, WebSocketConnectionId id)
+        ClientConnection(ESP32WebSocketClientPlatform& owner, WebSocketConnectionId id)
             : _owner(owner), _id(id) {}
 
         WebSocketConnectionId Id() const noexcept override { return _id; }
@@ -246,7 +246,7 @@ public:
 
         _client = client;
         _connection = System::Memory::MakeShared<
-            Connection,
+            ClientConnection,
             System::Memory::MemoryPolicy::ExternalPreferred
         >(*this, NextConnectionId());
         _connected = false;
@@ -296,7 +296,7 @@ public:
             stopped = esp_websocket_client_close_with_code(
                 client,
                 reason.Code,
-                reasonBytes == 0 ? nullptr : reason.Reason.data(),
+                reasonBytes == 0 ? "" : reason.Reason.data(),
                 static_cast<int>(reasonBytes),
                 _sendTimeoutTicks
             );
@@ -309,7 +309,6 @@ public:
         const auto destroyed = esp_websocket_client_destroy(client);
 
         IWebSocketClientPlatformSink* sink = nullptr;
-        std::shared_ptr<Connection> connection;
         WorkingString fallbackReason;
         bool notifyFallback = false;
         {
@@ -317,7 +316,6 @@ public:
             if (_client == client) _client = nullptr;
             _connected = false;
             if (_connection) _connection->SetOpen(false);
-            connection = _connection;
             _eventTask = nullptr;
             _incomingFrame.clear();
             _incomingOpcode = 0;
@@ -522,7 +520,7 @@ private:
         return WebResult::Success();
     }
 
-    WebResult SendBinary(Connection& connection, const uint8_t* data, std::size_t size) {
+    WebResult SendBinary(ClientConnection& connection, const uint8_t* data, std::size_t size) {
         if (data == nullptr || size == 0 || size > static_cast<std::size_t>(INT_MAX)) {
             return WebResult::Failure(WebError::InvalidConfiguration);
         }
@@ -546,7 +544,7 @@ private:
             : WebResult::Failure(WebError::ConnectionFailure, sent);
     }
 
-    WebResult SendText(Connection& connection, std::string_view text) {
+    WebResult SendText(ClientConnection& connection, std::string_view text) {
         if (text.empty() || text.size() > static_cast<std::size_t>(INT_MAX)) {
             return text.empty()
                 ? WebResult::Failure(WebError::Unsupported)
@@ -572,7 +570,7 @@ private:
             : WebResult::Failure(WebError::ConnectionFailure, sent);
     }
 
-    WebResult CloseConnection(Connection& connection, const WebSocketCloseReason& reason) {
+    WebResult CloseConnection(ClientConnection& connection, const WebSocketCloseReason& reason) {
         {
             std::lock_guard<std::mutex> lock(_mutex);
             if (!_connection || _connection.get() != &connection) {
@@ -626,7 +624,7 @@ private:
 
     void HandleConnected() {
         IWebSocketClientPlatformSink* sink = nullptr;
-        std::shared_ptr<Connection> connection;
+        std::shared_ptr<ClientConnection> connection;
         {
             std::lock_guard<std::mutex> lock(_mutex);
             if (_client == nullptr || !_connection) return;
@@ -746,7 +744,7 @@ private:
 
     void DispatchPayload(uint8_t opcode, const uint8_t* data, std::size_t size) {
         IWebSocketClientPlatformSink* sink = nullptr;
-        std::shared_ptr<Connection> connection;
+        std::shared_ptr<ClientConnection> connection;
         {
             std::lock_guard<std::mutex> lock(_mutex);
             if (!_connected || !_connection) return;
@@ -786,7 +784,7 @@ private:
     mutable std::mutex _mutex;
     esp_websocket_client_handle_t _client = nullptr;
     IWebSocketClientPlatformSink* _sink = nullptr;
-    std::shared_ptr<Connection> _connection;
+    std::shared_ptr<ClientConnection> _connection;
     bool _connected = false;
     bool _disconnecting = false;
     bool _disconnectNotified = true;
