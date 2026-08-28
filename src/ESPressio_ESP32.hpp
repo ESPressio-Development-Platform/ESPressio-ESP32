@@ -24,6 +24,9 @@
 #if defined(CONFIG_HTTPD_WS_SUPPORT) && __has_include(<ESPressio_WebSocketEndpoint.hpp>)
 #include "ESPressio_WebSocketEndpointPlatform.hpp"
 #endif
+#if __has_include(<ESPressio_WebSocketClient.hpp>) && __has_include(<esp_websocket_client.h>)
+#include "ESPressio_WebSocketClientPlatform.hpp"
+#endif
 #endif
 
 namespace ESPressio::ESP32Platform {
