@@ -7,14 +7,22 @@
 #endif
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <mutex>
 #include <string_view>
 
-#include <AsyncUDP.h>
+extern "C" {
+#include <lwip/err.h>
+#include <lwip/ip_addr.h>
+#include <lwip/pbuf.h>
+#include <lwip/priv/tcpip_priv.h>
+#include <lwip/udp.h>
+}
+
 #include <ESPressio_Dns.hpp>
+#include <ESPressio_Memory.hpp>
 
 #ifndef ESPRESSIO_ESP32_DNS_MAX_PACKET_BYTES
 #define ESPRESSIO_ESP32_DNS_MAX_PACKET_BYTES 512
@@ -101,6 +109,10 @@ inline bool DecodeDnsName(
     return false;
 }
 
+inline WebError DnsLwipError(err_t error) noexcept {
+    return error == ERR_MEM ? WebError::ResourceExhausted : WebError::ConnectionFailure;
+}
+
 } // namespace Detail
 
 class ESP32DnsRequestPlatform final : public IDnsRequestPlatform {
@@ -124,25 +136,38 @@ private:
 };
 
 class ESP32DnsResponsePlatform final : public IDnsResponsePlatform {
+private:
+    using Buffer = System::Memory::Vector<
+        uint8_t,
+        System::Memory::MemoryPolicy::ExternalPreferred
+    >;
+
 public:
     ESP32DnsResponsePlatform(
-        AsyncUDPPacket& packet,
+        udp_pcb* pcb,
+        const ip_addr_t& remoteAddress,
+        uint16_t remotePort,
         const uint8_t* request,
         std::size_t requestSize,
         std::size_t questionEnd
-    ) noexcept : _packet(packet) {
-        if (requestSize < 12 || questionEnd > requestSize || questionEnd > _buffer.size()) {
+    ) : _pcb(pcb), _remoteAddress(remoteAddress), _remotePort(remotePort) {
+        if (_pcb == nullptr || request == nullptr || requestSize < 12 ||
+            questionEnd > requestSize || questionEnd > ESPRESSIO_ESP32_DNS_MAX_PACKET_BYTES) {
+            _valid = false;
+            return;
+        }
+
+        try {
+            _buffer.resize(questionEnd);
+        } catch (...) {
             _valid = false;
             return;
         }
         std::memcpy(_buffer.data(), request, questionEnd);
-        _size = questionEnd;
 
         const uint16_t queryFlags = Detail::ReadDns16(request + 2);
         const uint16_t responseFlags = static_cast<uint16_t>(
-            0x8000u |                 // QR: response
-            0x0400u |                 // AA: authoritative
-            (queryFlags & 0x7900u)    // opcode + recursion desired
+            0x8000u | 0x0400u | (queryFlags & 0x7900u)
         );
         Detail::WriteDns16(_buffer.data() + 2, responseFlags);
         Detail::WriteDns16(_buffer.data() + 4, 1);
@@ -156,17 +181,12 @@ public:
     WebResult SetResponseCode(DnsResponseCode code) override {
         if (!_valid || _completed) return WebResult::Failure(WebError::InvalidState);
         uint16_t flags = Detail::ReadDns16(_buffer.data() + 2);
-        flags = static_cast<uint16_t>(
-            (flags & 0xfff0u) | (static_cast<uint8_t>(code) & 0x0fu)
-        );
+        flags = static_cast<uint16_t>((flags & 0xfff0u) | (static_cast<uint8_t>(code) & 0x0fu));
         Detail::WriteDns16(_buffer.data() + 2, flags);
         return WebResult::Success();
     }
 
-    WebResult AddAddressAnswer(
-        const DnsAddress& address,
-        uint32_t ttlSeconds
-    ) override {
+    WebResult AddAddressAnswer(const DnsAddress& address, uint32_t ttlSeconds) override {
         if (!_valid || _completed) return WebResult::Failure(WebError::InvalidState);
 
         const uint16_t type = address.Family == DnsAddressFamily::IPv4
@@ -174,29 +194,30 @@ public:
             : static_cast<uint16_t>(DnsRecordType::Aaaa);
         const std::size_t addressLength = address.Family == DnsAddressFamily::IPv4 ? 4 : 16;
         const std::size_t required = 12 + addressLength;
-        if (_size + required > _buffer.size()) {
+        if (_buffer.size() + required > ESPRESSIO_ESP32_DNS_MAX_PACKET_BYTES) {
             return WebResult::Failure(WebError::ResourceExhausted);
         }
 
-        // NAME: compression pointer to the original QNAME at DNS offset 12.
-        _buffer[_size++] = 0xc0;
-        _buffer[_size++] = 0x0c;
-        Detail::WriteDns16(_buffer.data() + _size, type);
-        _size += 2;
-        Detail::WriteDns16(
-            _buffer.data() + _size,
-            static_cast<uint16_t>(DnsRecordClass::Internet)
-        );
-        _size += 2;
-        Detail::WriteDns32(_buffer.data() + _size, ttlSeconds);
-        _size += 4;
-        Detail::WriteDns16(
-            _buffer.data() + _size,
-            static_cast<uint16_t>(addressLength)
-        );
-        _size += 2;
-        std::memcpy(_buffer.data() + _size, address.Bytes.data(), addressLength);
-        _size += addressLength;
+        const std::size_t start = _buffer.size();
+        try {
+            _buffer.resize(start + required);
+        } catch (...) {
+            return WebResult::Failure(WebError::ResourceExhausted);
+        }
+
+        auto* output = _buffer.data() + start;
+        std::size_t cursor = 0;
+        output[cursor++] = 0xc0;
+        output[cursor++] = 0x0c;
+        Detail::WriteDns16(output + cursor, type);
+        cursor += 2;
+        Detail::WriteDns16(output + cursor, static_cast<uint16_t>(DnsRecordClass::Internet));
+        cursor += 2;
+        Detail::WriteDns32(output + cursor, ttlSeconds);
+        cursor += 4;
+        Detail::WriteDns16(output + cursor, static_cast<uint16_t>(addressLength));
+        cursor += 2;
+        std::memcpy(output + cursor, address.Bytes.data(), addressLength);
 
         ++_answerCount;
         Detail::WriteDns16(_buffer.data() + 6, _answerCount);
@@ -205,14 +226,20 @@ public:
 
     WebResult Complete() override {
         if (!_valid || _completed) {
-            return _completed
-                ? WebResult::Success()
-                : WebResult::Failure(WebError::InvalidState);
+            return _completed ? WebResult::Success() : WebResult::Failure(WebError::InvalidState);
         }
-        const auto written = _packet.write(_buffer.data(), _size);
-        if (written != _size) {
-            return WebResult::Failure(WebError::ConnectionFailure);
+
+        pbuf* packet = pbuf_alloc(PBUF_TRANSPORT, static_cast<u16_t>(_buffer.size()), PBUF_RAM);
+        if (packet == nullptr) return WebResult::Failure(WebError::ResourceExhausted);
+        const err_t copied = pbuf_take(packet, _buffer.data(), static_cast<u16_t>(_buffer.size()));
+        if (copied != ERR_OK) {
+            pbuf_free(packet);
+            return WebResult::Failure(Detail::DnsLwipError(copied), copied);
         }
+
+        const err_t sent = udp_sendto(_pcb, packet, &_remoteAddress, _remotePort);
+        pbuf_free(packet);
+        if (sent != ERR_OK) return WebResult::Failure(Detail::DnsLwipError(sent), sent);
         _completed = true;
         return WebResult::Success();
     }
@@ -220,15 +247,29 @@ public:
     void Abort() noexcept override { _completed = true; }
 
 private:
-    AsyncUDPPacket& _packet;
-    std::array<uint8_t, ESPRESSIO_ESP32_DNS_MAX_PACKET_BYTES> _buffer{};
-    std::size_t _size = 0;
+    udp_pcb* _pcb = nullptr;
+    ip_addr_t _remoteAddress{};
+    uint16_t _remotePort = 0;
+    Buffer _buffer;
     uint16_t _answerCount = 0;
     bool _valid = true;
     bool _completed = false;
 };
 
 class ESP32DnsServerPlatform final : public IDnsServerPlatform {
+private:
+    using Buffer = System::Memory::Vector<
+        uint8_t,
+        System::Memory::MemoryPolicy::ExternalPreferred
+    >;
+
+    struct ApiCall final {
+        tcpip_api_call_data Call{};
+        ESP32DnsServerPlatform* Owner = nullptr;
+        uint16_t Port = 0;
+        err_t Result = ERR_OK;
+    };
+
 public:
     ESP32DnsServerPlatform() = default;
     ~ESP32DnsServerPlatform() override { Reset(); }
@@ -244,46 +285,105 @@ public:
         const DnsServerConfiguration& configuration,
         IDnsRequestDispatcher& dispatcher
     ) override {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_listening) return WebResult::Failure(WebError::InvalidState);
+        if (_listening.load(std::memory_order_acquire)) {
+            return WebResult::Failure(WebError::InvalidState);
+        }
         _configuration = configuration;
-        _dispatcher = &dispatcher;
+        _dispatcher.store(&dispatcher, std::memory_order_release);
         return WebResult::Success();
     }
 
     WebResult Start() override {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_listening) return WebResult::Failure(WebError::AlreadyRunning);
-        if (_dispatcher == nullptr) return WebResult::Failure(WebError::InvalidState);
-
-        _udp.onPacket([this](AsyncUDPPacket& packet) { HandlePacket(packet); });
-        if (!_udp.listen(_configuration.Port)) {
-            return WebResult::Failure(WebError::ConnectionFailure, _udp.lastErr());
+        if (_listening.load(std::memory_order_acquire)) {
+            return WebResult::Failure(WebError::AlreadyRunning);
         }
-        _listening = true;
+        if (_dispatcher.load(std::memory_order_acquire) == nullptr) {
+            return WebResult::Failure(WebError::InvalidState);
+        }
+
+        ApiCall call;
+        call.Owner = this;
+        call.Port = _configuration.Port;
+        const err_t invoked = tcpip_api_call(&StartOnTcpipThread, &call.Call);
+        const err_t result = invoked == ERR_OK ? call.Result : invoked;
+        if (result != ERR_OK) {
+            return WebResult::Failure(Detail::DnsLwipError(result), result);
+        }
+        _listening.store(true, std::memory_order_release);
         return WebResult::Success();
     }
 
     WebResult Stop() override {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (!_listening) return WebResult::Success();
-        _listening = false;
-        _udp.close();
-        return WebResult::Success();
+        if (!_listening.exchange(false, std::memory_order_acq_rel)) {
+            return WebResult::Success();
+        }
+
+        ApiCall call;
+        call.Owner = this;
+        const err_t invoked = tcpip_api_call(&StopOnTcpipThread, &call.Call);
+        const err_t result = invoked == ERR_OK ? call.Result : invoked;
+        return result == ERR_OK
+            ? WebResult::Success()
+            : WebResult::Failure(Detail::DnsLwipError(result), result);
     }
 
     void Reset() noexcept override {
         (void)Stop();
-        std::lock_guard<std::mutex> lock(_mutex);
-        _dispatcher = nullptr;
+        _dispatcher.store(nullptr, std::memory_order_release);
         _configuration = {};
     }
 
 private:
-    static void SendFormatError(AsyncUDPPacket& packet) noexcept {
-        if (packet.length() < 2) return;
+    static err_t StartOnTcpipThread(tcpip_api_call_data* data) {
+        auto& call = *reinterpret_cast<ApiCall*>(data);
+        auto* owner = call.Owner;
+        if (owner == nullptr) return ERR_ARG;
+
+        if (owner->_pcb != nullptr) {
+            udp_recv(owner->_pcb, nullptr, nullptr);
+            udp_remove(owner->_pcb);
+            owner->_pcb = nullptr;
+        }
+
+        owner->_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (owner->_pcb == nullptr) {
+            call.Result = ERR_MEM;
+            return ERR_OK;
+        }
+
+        call.Result = udp_bind(owner->_pcb, IP_ANY_TYPE, call.Port);
+        if (call.Result != ERR_OK) {
+            udp_remove(owner->_pcb);
+            owner->_pcb = nullptr;
+            return ERR_OK;
+        }
+
+        udp_recv(owner->_pcb, &ReceivePacket, owner);
+        return ERR_OK;
+    }
+
+    static err_t StopOnTcpipThread(tcpip_api_call_data* data) {
+        auto& call = *reinterpret_cast<ApiCall*>(data);
+        auto* owner = call.Owner;
+        if (owner == nullptr) return ERR_ARG;
+        if (owner->_pcb != nullptr) {
+            udp_recv(owner->_pcb, nullptr, nullptr);
+            udp_remove(owner->_pcb);
+            owner->_pcb = nullptr;
+        }
+        call.Result = ERR_OK;
+        return ERR_OK;
+    }
+
+    static void SendFormatError(
+        udp_pcb* pcb,
+        const ip_addr_t& remoteAddress,
+        uint16_t remotePort,
+        const uint8_t* request,
+        std::size_t requestSize
+    ) noexcept {
+        if (pcb == nullptr || request == nullptr || requestSize < 2) return;
         std::array<uint8_t, 12> response{};
-        const auto* request = packet.data();
         response[0] = request[0];
         response[1] = request[1];
         Detail::WriteDns16(
@@ -291,29 +391,61 @@ private:
             static_cast<uint16_t>(0x8000u | 0x0400u |
                 static_cast<uint8_t>(DnsResponseCode::FormatError))
         );
-        (void)packet.write(response.data(), response.size());
+
+        pbuf* packet = pbuf_alloc(PBUF_TRANSPORT, static_cast<u16_t>(response.size()), PBUF_RAM);
+        if (packet == nullptr) return;
+        if (pbuf_take(packet, response.data(), static_cast<u16_t>(response.size())) == ERR_OK) {
+            (void)udp_sendto(pcb, packet, &remoteAddress, remotePort);
+        }
+        pbuf_free(packet);
     }
 
-    void HandlePacket(AsyncUDPPacket& packet) {
-        IDnsRequestDispatcher* dispatcher = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            if (!_listening) return;
-            dispatcher = _dispatcher;
-        }
-        if (dispatcher == nullptr) return;
+    static void ReceivePacket(
+        void* argument,
+        udp_pcb* pcb,
+        pbuf* packet,
+        const ip_addr_t* remoteAddress,
+        u16_t remotePort
+    ) {
+        auto* owner = static_cast<ESP32DnsServerPlatform*>(argument);
+        if (packet == nullptr) return;
 
-        const auto* bytes = packet.data();
-        const std::size_t size = packet.length();
-        if (bytes == nullptr || size < 12 || size > ESPRESSIO_ESP32_DNS_MAX_PACKET_BYTES) {
-            SendFormatError(packet);
+        const auto releasePacket = [&]() { pbuf_free(packet); };
+        if (owner == nullptr || pcb == nullptr || remoteAddress == nullptr ||
+            !owner->_listening.load(std::memory_order_acquire)) {
+            releasePacket();
             return;
         }
 
-        const uint16_t flags = Detail::ReadDns16(bytes + 2);
-        const uint16_t questionCount = Detail::ReadDns16(bytes + 4);
+        IDnsRequestDispatcher* dispatcher = owner->_dispatcher.load(std::memory_order_acquire);
+        if (dispatcher == nullptr) {
+            releasePacket();
+            return;
+        }
+
+        const std::size_t size = packet->tot_len;
+        if (size < 12 || size > ESPRESSIO_ESP32_DNS_MAX_PACKET_BYTES) {
+            releasePacket();
+            return;
+        }
+
+        Buffer bytes;
+        try {
+            bytes.resize(size);
+        } catch (...) {
+            releasePacket();
+            return;
+        }
+        if (pbuf_copy_partial(packet, bytes.data(), static_cast<u16_t>(size), 0) != size) {
+            releasePacket();
+            return;
+        }
+        releasePacket();
+
+        const uint16_t flags = Detail::ReadDns16(bytes.data() + 2);
+        const uint16_t questionCount = Detail::ReadDns16(bytes.data() + 4);
         if ((flags & 0x8000u) != 0 || questionCount != 1) {
-            SendFormatError(packet);
+            SendFormatError(pcb, *remoteAddress, remotePort, bytes.data(), bytes.size());
             return;
         }
 
@@ -321,19 +453,19 @@ private:
         std::size_t nameLength = 0;
         std::size_t encodedNameEnd = 0;
         if (!Detail::DecodeDnsName(
-                bytes,
-                size,
+                bytes.data(),
+                bytes.size(),
                 12,
                 name,
                 nameLength,
                 encodedNameEnd) ||
-            encodedNameEnd + 4 > size) {
-            SendFormatError(packet);
+            encodedNameEnd + 4 > bytes.size()) {
+            SendFormatError(pcb, *remoteAddress, remotePort, bytes.data(), bytes.size());
             return;
         }
 
-        const uint16_t type = Detail::ReadDns16(bytes + encodedNameEnd);
-        const uint16_t recordClass = Detail::ReadDns16(bytes + encodedNameEnd + 2);
+        const uint16_t type = Detail::ReadDns16(bytes.data() + encodedNameEnd);
+        const uint16_t recordClass = Detail::ReadDns16(bytes.data() + encodedNameEnd + 2);
         const std::size_t questionEnd = encodedNameEnd + 4;
 
         ESP32DnsRequestPlatform request(
@@ -341,19 +473,22 @@ private:
             type,
             recordClass
         );
-        ESP32DnsResponsePlatform response(packet, bytes, size, questionEnd);
-        if (!response.Valid()) {
-            SendFormatError(packet);
-            return;
-        }
+        ESP32DnsResponsePlatform response(
+            pcb,
+            *remoteAddress,
+            remotePort,
+            bytes.data(),
+            bytes.size(),
+            questionEnd
+        );
+        if (!response.Valid()) return;
         (void)dispatcher->Dispatch(request, response);
     }
 
-    mutable std::mutex _mutex;
-    AsyncUDP _udp;
     DnsServerConfiguration _configuration{};
-    IDnsRequestDispatcher* _dispatcher = nullptr;
-    bool _listening = false;
+    std::atomic<IDnsRequestDispatcher*> _dispatcher{nullptr};
+    std::atomic<bool> _listening{false};
+    udp_pcb* _pcb = nullptr;
 };
 
 } // namespace ESPressio::Web
