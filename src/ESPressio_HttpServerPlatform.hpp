@@ -27,7 +27,6 @@
 #endif
 
 namespace ESPressio::Web {
-
 namespace Detail {
 
 inline WebResult ESP32HttpResult(esp_err_t result) noexcept {
@@ -101,9 +100,9 @@ inline const char* ESP32HttpStatusText(HttpStatus status) noexcept {
 
 inline bool HeaderNameEquals(std::string_view left, std::string_view right) noexcept {
     if (left.size() != right.size()) return false;
-    for (std::size_t index = 0; index < left.size(); ++index) {
-        const auto a = static_cast<unsigned char>(left[index]);
-        const auto b = static_cast<unsigned char>(right[index]);
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        const auto a = static_cast<unsigned char>(left[i]);
+        const auto b = static_cast<unsigned char>(right[i]);
         if (std::tolower(a) != std::tolower(b)) return false;
     }
     return true;
@@ -127,20 +126,18 @@ class ESP32HttpRequestPlatform final : public IHttpRequestPlatform {
 public:
     explicit ESP32HttpRequestPlatform(httpd_req_t& request) noexcept
         : _request(request) {
-        const std::string_view target(
-            request.uri == nullptr ? "" : request.uri
-        );
+        const std::string_view target(request.uri == nullptr ? "" : request.uri);
         const auto query = target.find('?');
-        _path = query == std::string_view::npos
-            ? target
-            : target.substr(0, query);
+        _path = query == std::string_view::npos ? target : target.substr(0, query);
         _query = query == std::string_view::npos
             ? std::string_view{}
             : target.substr(query + 1);
     }
 
     HttpMethod Method() const noexcept override {
-        return Detail::FromESP32HttpMethod(_request.method);
+        return Detail::FromESP32HttpMethod(
+            static_cast<httpd_method_t>(_request.method)
+        );
     }
 
     std::string_view Path() const noexcept override { return _path; }
@@ -155,6 +152,13 @@ public:
     bool HasHeader(std::string_view name) const noexcept override {
         std::array<char, ESPRESSIO_ESP32_WEB_MAX_HEADER_NAME_LENGTH + 1> field{};
         if (!Detail::CopyHeaderName(name, field)) return false;
+
+        if (httpd_req_get_hdr_value_len(
+                const_cast<httpd_req_t*>(&_request),
+                field.data()) != 0) {
+            return true;
+        }
+
         char value[1]{};
         return httpd_req_get_hdr_value_str(
             const_cast<httpd_req_t*>(&_request),
@@ -259,7 +263,6 @@ private:
         System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred> Name;
         System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred> Value;
     };
-
     using HeaderList = System::Memory::Vector<
         Header,
         System::Memory::MemoryPolicy::ExternalPreferred
@@ -283,16 +286,13 @@ public:
             _contentType.assign(value.begin(), value.end());
             return WebResult::Success();
         }
-
         for (auto& header : _headers) {
             if (Detail::HeaderNameEquals(
-                    std::string_view(header.Name.data(), header.Name.size()),
-                    name)) {
+                    std::string_view(header.Name.data(), header.Name.size()), name)) {
                 header.Value.assign(value.begin(), value.end());
                 return WebResult::Success();
             }
         }
-
         Header header;
         header.Name.assign(name.begin(), name.end());
         header.Value.assign(value.begin(), value.end());
@@ -314,7 +314,6 @@ public:
             result = httpd_resp_set_type(&_request, _contentType.c_str());
             if (result != ESP_OK) return Detail::ESP32HttpResult(result);
         }
-
         for (const auto& header : _headers) {
             result = httpd_resp_set_hdr(
                 &_request,
@@ -323,12 +322,10 @@ public:
             );
             if (result != ESP_OK) return Detail::ESP32HttpResult(result);
         }
-
         if (!_keepAlive) {
             result = httpd_resp_set_hdr(&_request, "Connection", "close");
             if (result != ESP_OK) return Detail::ESP32HttpResult(result);
         }
-
         _begun = true;
         return WebResult::Success();
     }
@@ -364,9 +361,7 @@ public:
         return WebResult::Success();
     }
 
-    void Abort() noexcept override {
-        _completed = true;
-    }
+    void Abort() noexcept override { _completed = true; }
 
 private:
     httpd_req_t& _request;
@@ -415,12 +410,11 @@ public:
 
         httpd_config_t native = HTTPD_DEFAULT_CONFIG();
         native.server_port = _configuration.Port;
-        native.max_req_hdr_len = _configuration.MaximumHeaderBytes;
-        native.max_open_sockets = static_cast<uint16_t>(std::min<std::size_t>(
+        native.max_open_sockets = static_cast<unsigned>(std::min<std::size_t>(
             _configuration.MaximumConnections + 3,
-            UINT16_MAX
+            0xffffu
         ));
-        native.max_uri_handlers = 1;
+        native.max_uri_handlers = SupportedMethodCount;
         native.uri_match_fn = httpd_uri_match_wildcard;
         native.lru_purge_enable = true;
 
@@ -430,16 +424,18 @@ public:
             return Detail::ESP32HttpResult(started);
         }
 
-        httpd_uri_t handler{};
-        handler.uri = "/*";
-        handler.method = static_cast<httpd_method_t>(HTTP_ANY);
-        handler.handler = &DispatchRequest;
-        handler.user_ctx = this;
-        const auto registered = httpd_register_uri_handler(_server, &handler);
-        if (registered != ESP_OK) {
-            (void)httpd_stop(_server);
-            _server = nullptr;
-            return Detail::ESP32HttpResult(registered);
+        for (const auto method : SupportedMethods) {
+            httpd_uri_t handler{};
+            handler.uri = "/*";
+            handler.method = method;
+            handler.handler = &DispatchRequest;
+            handler.user_ctx = this;
+            const auto registered = httpd_register_uri_handler(_server, &handler);
+            if (registered != ESP_OK) {
+                (void)httpd_stop(_server);
+                _server = nullptr;
+                return Detail::ESP32HttpResult(registered);
+            }
         }
         return WebResult::Success();
     }
@@ -463,10 +459,23 @@ public:
     }
 
 private:
+    inline static constexpr std::array<httpd_method_t, 9> SupportedMethods = {
+        HTTP_GET,
+        HTTP_HEAD,
+        HTTP_POST,
+        HTTP_PUT,
+        HTTP_PATCH,
+        HTTP_DELETE,
+        HTTP_OPTIONS,
+        HTTP_CONNECT,
+        HTTP_TRACE
+    };
+    inline static constexpr std::size_t SupportedMethodCount = SupportedMethods.size();
+
     static esp_err_t DispatchRequest(httpd_req_t* request) {
         if (request == nullptr || request->user_ctx == nullptr) return ESP_FAIL;
-        auto* self = static_cast<ESP32HttpServerPlatform*>(request->user_ctx);
-        return self->HandleRequest(*request);
+        return static_cast<ESP32HttpServerPlatform*>(request->user_ctx)
+            ->HandleRequest(*request);
     }
 
     esp_err_t HandleRequest(httpd_req_t& request) {
@@ -481,8 +490,9 @@ private:
 
         ESP32HttpRequestPlatform requestPlatform(request);
         ESP32HttpResponsePlatform responsePlatform(request, keepAlive);
-        const auto result = dispatcher->Dispatch(requestPlatform, responsePlatform);
-        return result ? ESP_OK : ESP_FAIL;
+        return dispatcher->Dispatch(requestPlatform, responsePlatform)
+            ? ESP_OK
+            : ESP_FAIL;
     }
 
     mutable std::mutex _mutex;
