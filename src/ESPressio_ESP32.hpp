@@ -15,6 +15,7 @@
 #if defined(ARDUINO_ARCH_ESP32)
 #include "ESPressio_WiFiPlatform.hpp"
 #include "ESPressio_WiFiRadio.hpp"
+#include "ESPressio_HttpServerPlatform.hpp"
 #endif
 
 namespace ESPressio::ESP32Platform {
