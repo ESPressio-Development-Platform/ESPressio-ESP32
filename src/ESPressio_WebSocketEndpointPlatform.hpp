@@ -55,6 +55,17 @@ inline uint16_t ReadNetworkUInt16(const uint8_t* data) noexcept {
     );
 }
 
+inline WebSocketFrameType ESP32WebSocketFrameType(httpd_ws_type_t type) noexcept {
+    switch (type) {
+        case HTTPD_WS_TYPE_TEXT: return WebSocketFrameType::Text;
+        case HTTPD_WS_TYPE_BINARY: return WebSocketFrameType::Binary;
+        case HTTPD_WS_TYPE_PING: return WebSocketFrameType::Ping;
+        case HTTPD_WS_TYPE_PONG: return WebSocketFrameType::Pong;
+        case HTTPD_WS_TYPE_CLOSE: return WebSocketFrameType::Close;
+        default: return WebSocketFrameType::Binary;
+    }
+}
+
 } // namespace Detail
 
 class ESP32WebSocketConnection final : public IWebSocketConnection {
@@ -82,10 +93,14 @@ private:
     >;
 
 public:
-    ESP32WebSocketConnection(httpd_handle_t server, int socket)
-        : _server(server),
-          _socket(socket),
-          _id(static_cast<WebSocketConnectionId>(static_cast<uint32_t>(socket))) {}
+    ESP32WebSocketConnection(
+        httpd_handle_t server,
+        int socket,
+        IWebSocketEndpointPlatformSink* activitySink
+    ) : _server(server),
+        _socket(socket),
+        _id(static_cast<WebSocketConnectionId>(static_cast<uint32_t>(socket))),
+        _activitySink(activitySink) {}
 
     WebSocketConnectionId Id() const noexcept override { return _id; }
 
@@ -93,6 +108,11 @@ public:
         return _open.load(std::memory_order_acquire) &&
                _server != nullptr &&
                httpd_ws_get_fd_info(_server, _socket) == HTTPD_WS_CLIENT_WEBSOCKET;
+    }
+
+    void SetActivitySink(IWebSocketEndpointPlatformSink* sink) noexcept {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _activitySink = sink;
     }
 
     WebResult SendBinary(const uint8_t* data, std::size_t size) override {
@@ -126,6 +146,16 @@ public:
             _closeCode = reason.Code;
             _closeReason.assign(reason.Reason.begin(), reason.Reason.end());
         }
+
+        NotifyActivity({
+            WebSocketActivityKind::CloseRequested,
+            _id,
+            WebSocketFrameType::Close,
+            reason.Reason.size(),
+            WebResult::Success(),
+            reason.Code,
+            reason.Reason
+        });
 
         const std::size_t reasonBytes = std::min<std::size_t>(reason.Reason.size(), 123);
         ByteBuffer payload(2 + reasonBytes);
@@ -162,9 +192,9 @@ public:
     WebResult RememberPeerClose(const uint8_t* payload, std::size_t size) {
         std::lock_guard<std::mutex> lock(_mutex);
         _open.store(false, std::memory_order_release);
-        _closeCode = size >= 2 ? Detail::ReadNetworkUInt16(payload) : 1000;
+        _closeCode = size >= 2 && payload != nullptr ? Detail::ReadNetworkUInt16(payload) : 1000;
         _closeReason.clear();
-        if (size > 2) {
+        if (size > 2 && payload != nullptr) {
             _closeReason.assign(
                 reinterpret_cast<const char*>(payload + 2),
                 reinterpret_cast<const char*>(payload + size)
@@ -270,6 +300,15 @@ private:
         }
     }
 
+    void NotifyActivity(const WebSocketActivity& activity) const {
+        IWebSocketEndpointPlatformSink* sink = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            sink = _activitySink;
+        }
+        if (sink != nullptr) sink->OnPlatformWebSocketActivity(activity);
+    }
+
     WebResult QueueFrame(
         httpd_ws_type_t type,
         const uint8_t* data,
@@ -277,7 +316,17 @@ private:
         bool closeAfterSend
     ) {
         if (!_open.load(std::memory_order_acquire) || _server == nullptr) {
-            return WebResult::Failure(WebError::Closed);
+            const auto result = WebResult::Failure(WebError::Closed);
+            NotifyActivity({
+                WebSocketActivityKind::SendFailed,
+                _id,
+                Detail::ESP32WebSocketFrameType(type),
+                size,
+                result,
+                0,
+                "connection closed before send"
+            });
+            return result;
         }
         ByteBuffer payload;
         if (size != 0) {
@@ -293,20 +342,37 @@ private:
         bool closeAfterSend,
         bool allowClosed
     ) {
+        const auto payloadBytes = payload.size();
         if ((!allowClosed && !_open.load(std::memory_order_acquire)) || _server == nullptr) {
-            return WebResult::Failure(WebError::Closed);
+            const auto result = WebResult::Failure(WebError::Closed);
+            NotifyActivity({WebSocketActivityKind::SendFailed, _id,
+                Detail::ESP32WebSocketFrameType(type), payloadBytes, result, 0,
+                "connection unavailable"});
+            return result;
         }
         if (httpd_ws_get_fd_info(_server, _socket) != HTTPD_WS_CLIENT_WEBSOCKET) {
-            return WebResult::Failure(WebError::Closed);
+            const auto result = WebResult::Failure(WebError::Closed);
+            NotifyActivity({WebSocketActivityKind::SendFailed, _id,
+                Detail::ESP32WebSocketFrameType(type), payloadBytes, result, 0,
+                "HTTPD session is not a websocket"});
+            return result;
         }
 
         SendOperation* operation = nullptr;
         try {
             operation = AllocateSendOperation();
         } catch (const std::bad_alloc&) {
-            return WebResult::Failure(WebError::ResourceExhausted);
+            const auto result = WebResult::Failure(WebError::ResourceExhausted);
+            NotifyActivity({WebSocketActivityKind::SendFailed, _id,
+                Detail::ESP32WebSocketFrameType(type), payloadBytes, result, 0,
+                "send operation allocation failed"});
+            return result;
         } catch (...) {
-            return WebResult::Failure(WebError::PlatformFailure);
+            const auto result = WebResult::Failure(WebError::PlatformFailure);
+            NotifyActivity({WebSocketActivityKind::SendFailed, _id,
+                Detail::ESP32WebSocketFrameType(type), payloadBytes, result, 0,
+                "send operation construction failed"});
+            return result;
         }
 
         operation->Server = _server;
@@ -329,9 +395,23 @@ private:
             operation
         );
         if (queued != ESP_OK) {
+            const auto result = Detail::ESP32WebSocketResult(queued);
             DestroySendOperation(operation);
-            return Detail::ESP32WebSocketResult(queued);
+            NotifyActivity({WebSocketActivityKind::SendFailed, _id,
+                Detail::ESP32WebSocketFrameType(type), payloadBytes, result, 0,
+                "httpd_ws_send_data_async rejected frame"});
+            return result;
         }
+
+        NotifyActivity({
+            WebSocketActivityKind::SendQueued,
+            _id,
+            Detail::ESP32WebSocketFrameType(type),
+            payloadBytes,
+            WebResult::Success(),
+            0,
+            "frame queued to HTTPD"
+        });
         return WebResult::Success();
     }
 
@@ -340,6 +420,7 @@ private:
     WebSocketConnectionId _id = 0;
     std::atomic<bool> _open{true};
     mutable std::mutex _mutex;
+    IWebSocketEndpointPlatformSink* _activitySink = nullptr;
     uint16_t _closeCode = 1006;
     WorkingString _closeReason;
     bool _fragmenting = false;
@@ -368,6 +449,9 @@ private:
         void SetSink(IWebSocketEndpointPlatformSink* sink) {
             std::lock_guard<std::mutex> lock(_mutex);
             _sink = sink;
+            for (const auto& connection : _connections) {
+                if (connection) connection->SetActivitySink(sink);
+            }
         }
 
         WebResult Prepare(const WebSocketEndpointConfiguration& configuration) {
@@ -381,18 +465,9 @@ private:
             return WebResult::Success();
         }
 
-        void Activate() noexcept {
-            _active.store(true, std::memory_order_release);
-        }
-
-        void Deactivate() noexcept {
-            _active.store(false, std::memory_order_release);
-        }
-
-        bool IsActive() const noexcept override {
-            return _active.load(std::memory_order_acquire);
-        }
-
+        void Activate() noexcept { _active.store(true, std::memory_order_release); }
+        void Deactivate() noexcept { _active.store(false, std::memory_order_release); }
+        bool IsActive() const noexcept override { return _active.load(std::memory_order_acquire); }
         const char* PathCString() const noexcept override { return _path.c_str(); }
         const char* ProtocolCString() const noexcept override { return _protocol.c_str(); }
 
@@ -405,9 +480,9 @@ private:
             if (data == nullptr || size == 0) {
                 return WebResult::Failure(WebError::InvalidConfiguration);
             }
-            std::lock_guard<std::mutex> lock(_mutex);
+            const auto connections = SnapshotConnections();
             WebResult finalResult = WebResult::Success();
-            for (const auto& connection : _connections) {
+            for (const auto& connection : connections) {
                 if (!connection) continue;
                 const auto result = connection->SendBinary(data, size);
                 if (!result) finalResult = result;
@@ -416,9 +491,9 @@ private:
         }
 
         WebResult BroadcastText(std::string_view text) {
-            std::lock_guard<std::mutex> lock(_mutex);
+            const auto connections = SnapshotConnections();
             WebResult finalResult = WebResult::Success();
-            for (const auto& connection : _connections) {
+            for (const auto& connection : connections) {
                 if (!connection) continue;
                 const auto result = connection->SendText(text);
                 if (!result) finalResult = result;
@@ -442,10 +517,24 @@ private:
 
             const int socket = httpd_req_to_sockfd(&request);
             if (socket < 0) return ESP_FAIL;
+            const auto id = static_cast<WebSocketConnectionId>(static_cast<uint32_t>(socket));
 
             if (request.method == HTTP_GET) {
+                auto* sink = SnapshotSink();
+                if (sink != nullptr) {
+                    sink->OnPlatformWebSocketActivity({
+                        WebSocketActivityKind::UpgradeRequested,
+                        id,
+                        WebSocketFrameType::Text,
+                        0,
+                        WebResult::Success(),
+                        0,
+                        "HTTPD websocket upgrade request"
+                    });
+                }
+
                 ConnectionPtr connection;
-                IWebSocketEndpointPlatformSink* sink = nullptr;
+                bool created = false;
                 {
                     std::lock_guard<std::mutex> lock(_mutex);
                     connection = FindConnectionLocked(socket);
@@ -453,22 +542,75 @@ private:
                         connection = System::Memory::MakeShared<
                             ESP32WebSocketConnection,
                             System::Memory::MemoryPolicy::ExternalPreferred
-                        >(request.handle, socket);
+                        >(request.handle, socket, _sink);
                         _connections.push_back(connection);
+                        created = true;
                     }
                     sink = _sink;
+                }
+                if (sink != nullptr && created) {
+                    sink->OnPlatformWebSocketActivity({
+                        WebSocketActivityKind::ConnectionCreated,
+                        connection->Id(),
+                        WebSocketFrameType::Text,
+                        0,
+                        WebResult::Success(),
+                        0,
+                        "ESP32 websocket connection object created"
+                    });
                 }
                 if (sink != nullptr) sink->OnPlatformWebSocketConnected(*connection);
                 return ESP_OK;
             }
 
             auto connection = FindConnection(socket);
-            if (!connection) return ESP_FAIL;
+            if (!connection) {
+                auto* sink = SnapshotSink();
+                if (sink != nullptr) {
+                    sink->OnPlatformWebSocketActivity({
+                        WebSocketActivityKind::ReceiveFailed, id, WebSocketFrameType::Binary, 0,
+                        WebResult::Failure(WebError::NotFound), 0,
+                        "frame arrived without tracked websocket connection"
+                    });
+                }
+                return ESP_FAIL;
+            }
 
             httpd_ws_frame_t frame{};
             auto received = httpd_ws_recv_frame(&request, &frame, 0);
-            if (received != ESP_OK) return received;
+            if (received != ESP_OK) {
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::ReceiveFailed,
+                    connection->Id(),
+                    WebSocketFrameType::Binary,
+                    0,
+                    Detail::ESP32WebSocketResult(received),
+                    0,
+                    "failed reading websocket frame header"
+                });
+                return received;
+            }
+
+            NotifyActivity(*connection, {
+                WebSocketActivityKind::FrameHeaderReceived,
+                connection->Id(),
+                Detail::ESP32WebSocketFrameType(frame.type),
+                frame.len,
+                WebResult::Success(),
+                0,
+                frame.final ? "final frame header" : "fragmented frame header"
+            });
+
             if (frame.len > ESPRESSIO_ESP32_WEBSOCKET_MAX_MESSAGE_BYTES) {
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::ProtocolError,
+                    connection->Id(),
+                    Detail::ESP32WebSocketFrameType(frame.type),
+                    frame.len,
+                    WebResult::Failure(WebError::ResourceExhausted),
+                    1009,
+                    "websocket message exceeds configured maximum"
+                });
                 (void)connection->Close({1009, "message too large"});
                 return ESP_OK;
             }
@@ -476,14 +618,57 @@ private:
             ByteBuffer payload(frame.len);
             frame.payload = payload.empty() ? nullptr : payload.data();
             received = httpd_ws_recv_frame(&request, &frame, frame.len);
-            if (received != ESP_OK) return received;
+            if (received != ESP_OK) {
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::ReceiveFailed,
+                    connection->Id(),
+                    Detail::ESP32WebSocketFrameType(frame.type),
+                    frame.len,
+                    Detail::ESP32WebSocketResult(received),
+                    0,
+                    "failed reading websocket frame payload"
+                });
+                return received;
+            }
+
+            NotifyActivity(*connection, {
+                WebSocketActivityKind::FramePayloadReceived,
+                connection->Id(),
+                Detail::ESP32WebSocketFrameType(frame.type),
+                payload.size(),
+                WebResult::Success(),
+                0,
+                "websocket frame payload received"
+            });
 
             if (frame.type == HTTPD_WS_TYPE_PING) {
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::PingReceived, connection->Id(), WebSocketFrameType::Ping,
+                    payload.size(), WebResult::Success(), 0, "ping received; replying pong"
+                });
                 frame.type = HTTPD_WS_TYPE_PONG;
                 return httpd_ws_send_frame(&request, &frame);
             }
-            if (frame.type == HTTPD_WS_TYPE_PONG) return ESP_OK;
+            if (frame.type == HTTPD_WS_TYPE_PONG) {
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::PongReceived, connection->Id(), WebSocketFrameType::Pong,
+                    payload.size(), WebResult::Success(), 0, "pong received"
+                });
+                return ESP_OK;
+            }
             if (frame.type == HTTPD_WS_TYPE_CLOSE) {
+                const uint16_t closeCode = payload.size() >= 2
+                    ? Detail::ReadNetworkUInt16(payload.data())
+                    : 1000;
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::PeerCloseReceived,
+                    connection->Id(),
+                    WebSocketFrameType::Close,
+                    payload.size(),
+                    WebResult::Success(),
+                    closeCode,
+                    "peer close frame received"
+                });
                 (void)connection->RememberPeerClose(payload.data(), payload.size());
                 httpd_ws_frame_t closeFrame{};
                 closeFrame.final = true;
@@ -493,6 +678,19 @@ private:
                 (void)httpd_ws_send_frame(&request, &closeFrame);
                 (void)httpd_sess_trigger_close(request.handle, socket);
                 return ESP_OK;
+            }
+
+            if (!frame.final &&
+                (frame.type == HTTPD_WS_TYPE_TEXT || frame.type == HTTPD_WS_TYPE_BINARY)) {
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::FragmentStarted,
+                    connection->Id(),
+                    Detail::ESP32WebSocketFrameType(frame.type),
+                    payload.size(),
+                    WebResult::Success(),
+                    0,
+                    "fragmented websocket message started"
+                });
             }
 
             httpd_ws_type_t completedType = HTTPD_WS_TYPE_BINARY;
@@ -510,16 +708,33 @@ private:
                 const uint16_t code = accumulated.Error == WebError::ResourceExhausted
                     ? 1009
                     : 1002;
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::ProtocolError,
+                    connection->Id(),
+                    Detail::ESP32WebSocketFrameType(frame.type),
+                    frame.len,
+                    accumulated,
+                    code,
+                    "invalid websocket fragmentation sequence"
+                });
                 (void)connection->Close({code, "invalid websocket message"});
                 return ESP_OK;
             }
             if (!completed) return ESP_OK;
 
-            IWebSocketEndpointPlatformSink* sink = nullptr;
-            {
-                std::lock_guard<std::mutex> lock(_mutex);
-                sink = _sink;
+            if (frame.type == HTTPD_WS_TYPE_CONTINUE || !frame.final) {
+                NotifyActivity(*connection, {
+                    WebSocketActivityKind::FragmentCompleted,
+                    connection->Id(),
+                    Detail::ESP32WebSocketFrameType(completedType),
+                    completedPayload.size(),
+                    WebResult::Success(),
+                    0,
+                    "fragmented websocket message completed"
+                });
             }
+
+            auto* sink = SnapshotSink();
             if (sink == nullptr) return ESP_OK;
 
             if (completedType == HTTPD_WS_TYPE_TEXT) {
@@ -564,6 +779,15 @@ private:
             connection->MarkClosed();
             if (sink != nullptr) {
                 const auto reason = connection->CloseReason();
+                sink->OnPlatformWebSocketActivity({
+                    WebSocketActivityKind::SessionClosed,
+                    connection->Id(),
+                    WebSocketFrameType::Close,
+                    reason.Reason.size(),
+                    WebResult::Success(),
+                    reason.Code,
+                    "HTTPD websocket session closed"
+                });
                 sink->OnPlatformWebSocketDisconnected(connection->Id(), reason);
             }
         }
@@ -572,6 +796,19 @@ private:
         ConnectionList SnapshotConnections() const {
             std::lock_guard<std::mutex> lock(_mutex);
             return _connections;
+        }
+
+        IWebSocketEndpointPlatformSink* SnapshotSink() const noexcept {
+            std::lock_guard<std::mutex> lock(_mutex);
+            return _sink;
+        }
+
+        void NotifyActivity(
+            const ESP32WebSocketConnection&,
+            const WebSocketActivity& activity
+        ) const {
+            auto* sink = SnapshotSink();
+            if (sink != nullptr) sink->OnPlatformWebSocketActivity(activity);
         }
 
         ConnectionPtr FindConnection(int socket) const {
@@ -626,15 +863,41 @@ public:
 
     WebResult Bind(const WebSocketEndpointConfiguration& configuration) override {
         if (IsBound()) return WebResult::Failure(WebError::AlreadyRunning);
+        NotifyActivity({
+            WebSocketActivityKind::BindRequested,
+            0,
+            WebSocketFrameType::Text,
+            0,
+            WebResult::Success(),
+            0,
+            configuration.Path
+        });
+
         auto result = _state->Prepare(configuration);
-        if (!result) return result;
+        if (!result) {
+            NotifyActivity({WebSocketActivityKind::ProtocolError, 0, WebSocketFrameType::Text,
+                0, result, 0, "websocket endpoint prepare failed"});
+            return result;
+        }
 
         _state->Activate();
         result = _httpPlatform.AddWebSocketBinding(_state);
         if (!result) {
             _state->Deactivate();
+            NotifyActivity({WebSocketActivityKind::ProtocolError, 0, WebSocketFrameType::Text,
+                0, result, 0, "HTTPD websocket binding registration failed"});
             return result;
         }
+
+        NotifyActivity({
+            WebSocketActivityKind::Bound,
+            0,
+            WebSocketFrameType::Text,
+            0,
+            WebResult::Success(),
+            0,
+            configuration.Path
+        });
         return WebResult::Success();
     }
 
@@ -653,6 +916,15 @@ public:
         // running native HTTP server as a handler user_ctx. A later Bind uses a
         // fresh state and therefore cannot transiently re-enable a stale route.
         _state = MakeBindingState(_sink);
+        NotifyActivity({
+            WebSocketActivityKind::Unbound,
+            0,
+            WebSocketFrameType::Close,
+            0,
+            closeResult,
+            1001,
+            "websocket endpoint unbound"
+        });
         return closeResult;
     }
 
@@ -676,6 +948,10 @@ public:
     }
 
 private:
+    void NotifyActivity(const WebSocketActivity& activity) const {
+        if (_sink != nullptr) _sink->OnPlatformWebSocketActivity(activity);
+    }
+
     ESP32HttpServerPlatform& _httpPlatform;
     IWebSocketEndpointPlatformSink* _sink = nullptr;
     std::shared_ptr<BindingState> _state;
