@@ -24,11 +24,6 @@
       "name":"ESPressio-Persistence",
       "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#feature/10-platform-storage-abstractions",
       "platforms":"espressif32"
-    },
-    {
-      "name":"ESPressio-Web",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Web.git#work/web-core-tranche",
-      "platforms":"espressif32"
     }
   ]
 }
