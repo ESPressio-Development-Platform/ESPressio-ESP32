@@ -169,14 +169,14 @@ public:
     WebResult AccumulateFragment(
         httpd_ws_type_t type,
         bool final,
-        const uint8_t* payload,
-        std::size_t size,
+        ByteBuffer&& payload,
         httpd_ws_type_t& completedType,
         ByteBuffer& completedPayload,
         bool& completed
     ) {
         completed = false;
         std::lock_guard<std::mutex> lock(_mutex);
+        const std::size_t size = payload.size();
 
         if (type == HTTPD_WS_TYPE_TEXT || type == HTTPD_WS_TYPE_BINARY) {
             if (_fragmenting) {
@@ -184,16 +184,20 @@ public:
             }
             if (final) {
                 completedType = type;
-                if (size != 0) completedPayload.assign(payload, payload + size);
+                completedPayload = std::move(payload);
                 completed = true;
                 return WebResult::Success();
             }
+            if (size > ESPRESSIO_ESP32_WEBSOCKET_MAX_MESSAGE_BYTES) {
+                return WebResult::Failure(WebError::ResourceExhausted);
+            }
             _fragmenting = true;
             _fragmentType = type;
-            _fragmentBuffer.clear();
-        } else if (type == HTTPD_WS_TYPE_CONTINUE) {
-            if (!_fragmenting) return WebResult::Failure(WebError::ProtocolError);
-        } else {
+            _fragmentBuffer = std::move(payload);
+            return WebResult::Success();
+        }
+
+        if (type != HTTPD_WS_TYPE_CONTINUE || !_fragmenting) {
             return WebResult::Failure(WebError::ProtocolError);
         }
 
@@ -203,7 +207,11 @@ public:
             return WebResult::Failure(WebError::ResourceExhausted);
         }
         if (size != 0) {
-            _fragmentBuffer.insert(_fragmentBuffer.end(), payload, payload + size);
+            _fragmentBuffer.insert(
+                _fragmentBuffer.end(),
+                payload.begin(),
+                payload.end()
+            );
         }
         if (final) {
             completedType = _fragmentType;
@@ -449,8 +457,7 @@ private:
             const auto accumulated = connection->AccumulateFragment(
                 frame.type,
                 frame.final,
-                payload.data(),
-                payload.size(),
+                std::move(payload),
                 completedType,
                 completedPayload,
                 completed
