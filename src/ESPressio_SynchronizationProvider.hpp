@@ -2,6 +2,10 @@
 
 #include <memory>
 
+#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+    #include <cstdio>
+#endif
+
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -14,30 +18,61 @@ class BinarySignal final : public System::Synchronization::ISignal {
 private:
     SemaphoreHandle_t _semaphore = nullptr;
 
+#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+    void Trace(const char* phase) const noexcept {
+        std::printf(
+            "[ESPressio ESP32][BinarySignal] phase=%s signal=%p semaphore=%p currentTask=%p\n",
+            phase != nullptr ? phase : "unknown",
+            static_cast<const void*>(this),
+            static_cast<void*>(_semaphore),
+            static_cast<void*>(xTaskGetCurrentTaskHandle())
+        );
+        std::fflush(stdout);
+    }
+#endif
+
 public:
+    /// <summary>Creates a FreeRTOS-backed binary signal.</summary>
     explicit BinarySignal(bool initiallySet) {
         _semaphore = xSemaphoreCreateBinary();
         if (_semaphore != nullptr && initiallySet) xSemaphoreGive(_semaphore);
+#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+        Trace("created");
+#endif
     }
 
+    /// <summary>Releases the native FreeRTOS semaphore owned by this signal.</summary>
     ~BinarySignal() override {
+#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+        Trace("destroying");
+#endif
         if (_semaphore != nullptr) {
             vSemaphoreDelete(_semaphore);
             _semaphore = nullptr;
         }
     }
 
+    /// <summary>Indicates whether the native FreeRTOS semaphore was created successfully.</summary>
     bool IsAvailable() const noexcept { return _semaphore != nullptr; }
 
+    /// <summary>Sets the binary signal from task context.</summary>
     System::PlatformResult Give() noexcept override {
         if (_semaphore == nullptr) {
             return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
         }
-        return xSemaphoreGive(_semaphore) == pdTRUE
+#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+        Trace("give-begin");
+#endif
+        const BaseType_t result = xSemaphoreGive(_semaphore);
+#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+        Trace(result == pdTRUE ? "give-end-success" : "give-end-busy");
+#endif
+        return result == pdTRUE
             ? System::PlatformResult::Succeeded()
             : System::PlatformResult::Failed(System::PlatformStatus::Busy);
     }
 
+    /// <summary>Sets the binary signal from interrupt context.</summary>
     System::PlatformResult GiveFromInterrupt() noexcept override {
         if (_semaphore == nullptr) {
             return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
@@ -50,6 +85,7 @@ public:
             : System::PlatformResult::Failed(System::PlatformStatus::Busy);
     }
 
+    /// <summary>Waits for the binary signal to become set, optionally with a timeout.</summary>
     System::PlatformResult Wait(uint32_t timeoutMilliseconds) noexcept override {
         if (_semaphore == nullptr) {
             return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
@@ -59,11 +95,19 @@ public:
             ticks = pdMS_TO_TICKS(timeoutMilliseconds);
             if (timeoutMilliseconds != 0 && ticks == 0) ticks = 1;
         }
-        return xSemaphoreTake(_semaphore, ticks) == pdTRUE
+#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+        Trace("wait-begin");
+#endif
+        const BaseType_t result = xSemaphoreTake(_semaphore, ticks);
+#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+        Trace(result == pdTRUE ? "wait-end-success" : "wait-end-timeout");
+#endif
+        return result == pdTRUE
             ? System::PlatformResult::Succeeded()
             : System::PlatformResult::Failed(System::PlatformStatus::Timeout);
     }
 
+    /// <summary>Clears any currently set state without blocking.</summary>
     System::PlatformResult Reset() noexcept override {
         if (_semaphore == nullptr) {
             return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
@@ -75,6 +119,7 @@ public:
 
 class SynchronizationProvider final : public System::Synchronization::ISynchronizationProvider {
 public:
+    /// <summary>Creates a FreeRTOS-backed binary signal.</summary>
     std::unique_ptr<System::Synchronization::ISignal> CreateBinarySignal(
         bool initiallySet = false
     ) override {
