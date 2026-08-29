@@ -10,6 +10,7 @@
 
 namespace ESPressio::ESP32Platform {
 
+/// <summary>Snapshot of allocation traffic and active automatic-allocation placement policy.</summary>
 struct MemoryProviderStatistics {
     uint32_t AutomaticRequests{0};
     uint32_t AutomaticBytes{0};
@@ -23,8 +24,11 @@ struct MemoryProviderStatistics {
     uint32_t ExternalPreferredExternalBytes{0};
     uint32_t ExternalPreferredInternalFallbacks{0};
     uint32_t ExternalPreferredInternalFallbackBytes{0};
+    uint32_t AutomaticExternalPreferenceThresholdBytes{0};
+    bool AutomaticExternalPreferenceEnabled{false};
 };
 
+/// <summary>ESP32 implementation of ESPressio System policy-aware memory allocation.</summary>
 class MemoryProvider final : public System::Memory::IMemoryProvider {
 public:
     void* Allocate(std::size_t bytes, std::size_t alignment, System::Memory::MemoryPolicy policy) override {
@@ -82,6 +86,33 @@ public:
         return true;
     }
 
+    /// <summary>Configures ESP-IDF default <c>malloc()</c> placement so allocations at or above the threshold may use PSRAM.</summary>
+    /// <param name="minimumBytes">Smallest ordinary allocation that may prefer PSRAM; zero permits all eligible sizes.</param>
+    /// <returns><c>true</c> when ESP-IDF external-memory malloc integration is available and PSRAM exists.</returns>
+    /// <remarks>
+    /// Capability-constrained allocations such as <c>MALLOC_CAP_INTERNAL</c> or <c>MALLOC_CAP_DMA</c> are not redirected
+    /// by this preference. Explicit ESPressio <c>Internal</c>, <c>ExternalPreferred</c>, and <c>ExternalRequired</c>
+    /// allocations continue to use their requested capability masks directly.
+    /// </remarks>
+    bool ConfigureAutomaticExternalPreference(std::size_t minimumBytes) noexcept override {
+#if defined(CONFIG_SPIRAM_USE_MALLOC) && CONFIG_SPIRAM_USE_MALLOC
+        if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == 0) {
+            return false;
+        }
+        heap_caps_malloc_extmem_enable(minimumBytes);
+        _automaticExternalPreferenceThresholdBytes.store(
+            ClampToUint32(minimumBytes),
+            std::memory_order_relaxed
+        );
+        _automaticExternalPreferenceEnabled.store(true, std::memory_order_release);
+        return true;
+#else
+        (void)minimumBytes;
+        return false;
+#endif
+    }
+
+    /// <summary>Returns cumulative allocator statistics and the configured automatic-allocation threshold.</summary>
     MemoryProviderStatistics Statistics() const noexcept {
         MemoryProviderStatistics statistics;
         statistics.AutomaticRequests = _automaticRequests.load(std::memory_order_relaxed);
@@ -96,6 +127,10 @@ public:
         statistics.ExternalPreferredExternalBytes = _externalPreferredExternalBytes.load(std::memory_order_relaxed);
         statistics.ExternalPreferredInternalFallbacks = _externalPreferredInternalFallbacks.load(std::memory_order_relaxed);
         statistics.ExternalPreferredInternalFallbackBytes = _externalPreferredInternalFallbackBytes.load(std::memory_order_relaxed);
+        statistics.AutomaticExternalPreferenceThresholdBytes =
+            _automaticExternalPreferenceThresholdBytes.load(std::memory_order_relaxed);
+        statistics.AutomaticExternalPreferenceEnabled =
+            _automaticExternalPreferenceEnabled.load(std::memory_order_acquire);
         return statistics;
     }
 
@@ -137,13 +172,17 @@ private:
     std::atomic<uint32_t> _externalPreferredExternalBytes{0};
     std::atomic<uint32_t> _externalPreferredInternalFallbacks{0};
     std::atomic<uint32_t> _externalPreferredInternalFallbackBytes{0};
+    std::atomic<uint32_t> _automaticExternalPreferenceThresholdBytes{0};
+    std::atomic<bool> _automaticExternalPreferenceEnabled{false};
 };
 
+/// <summary>Returns the process-wide ESP32 System memory provider.</summary>
 inline MemoryProvider& GetMemoryProvider() {
     static MemoryProvider provider;
     return provider;
 }
 
+/// <summary>Installs the ESP32 System memory provider and returns the previously installed provider.</summary>
 inline System::Memory::IMemoryProvider* InstallMemoryProvider() noexcept {
     return System::Memory::SetProvider(&GetMemoryProvider());
 }
