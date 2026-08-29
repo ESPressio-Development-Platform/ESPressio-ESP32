@@ -10,7 +10,6 @@
 #include <esp_netif.h>
 #include <algorithm>
 #include <cmath>
-#include <vector>
 
 #include <ESPressio_Clock.hpp>
 #include <ESPressio_WiFi.hpp>
@@ -188,10 +187,11 @@ public:
         return WiFiStatus::Success;
     }
 
+    /// <summary>Polls ESP32 Wi-Fi state using externally preferred scan and event collections supplied by the Wi-Fi core.</summary>
     WiFiStatus Poll(
         WiFiRuntimeState& state,
-        std::vector<ScanResult>* completedScan,
-        std::vector<WiFiPlatformEvent>* events
+        WiFiVector<ScanResult>* completedScan,
+        WiFiVector<WiFiPlatformEvent>* events
     ) override {
         const auto before = _state;
         PollReconnect();
@@ -258,8 +258,8 @@ public:
 private:
     struct PlatformClientConfiguration {
         bool Enabled = false;
-        std::string SSID;
-        std::string Password;
+        WiFiString SSID;
+        WiFiString Password;
         AddressMode Addressing = AddressMode::DHCP;
         NetworkAddress StaticNetwork{};
     };
@@ -308,7 +308,7 @@ private:
             mode == WiFiMode::APUntilClient;
     }
 
-    static bool ValidateCredential(const std::string& password) {
+    static bool ValidateCredential(const WiFiString& password) {
         return password.empty() || (password.size() >= 8 && password.size() <= 63);
     }
     static bool ValidateProfile(const ClientNetworkProfile& profile) {
@@ -441,10 +441,10 @@ private:
         (void)esp_wifi_set_ps(_configuration.PowerSave ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
     }
 
-    const std::string& ActiveSSID() const {
+    const WiFiString& ActiveSSID() const {
         return _hasActiveProfile ? _activeProfile.SSID : _configuration.Client.SSID;
     }
-    const std::string& ActivePassword() const {
+    const WiFiString& ActivePassword() const {
         return _hasActiveProfile ? _activeProfile.Password : _configuration.Client.Password;
     }
 
@@ -535,9 +535,12 @@ private:
             const auto status = ::WiFi.status();
             if (status == WL_CONNECTED) next.Client.State = ClientState::Connected;
             else if (_manualDisconnect) next.Client.State = ClientState::Disconnected;
-            next.Client.SSID = status == WL_CONNECTED
-                ? std::string(::WiFi.SSID().c_str())
-                : ActiveSSID();
+            if (status == WL_CONNECTED) {
+                const auto currentSSID = ::WiFi.SSID();
+                next.Client.SSID.assign(currentSSID.c_str(), currentSSID.length());
+            } else {
+                next.Client.SSID = ActiveSSID();
+            }
             next.Client.RSSI = status == WL_CONNECTED ? ::WiFi.RSSI() : 0;
             next.Client.Channel = status == WL_CONNECTED
                 ? static_cast<uint8_t>(::WiFi.channel())
@@ -575,7 +578,7 @@ private:
         }
     }
 
-    void PollScan(std::vector<ScanResult>* completedScan) {
+    void PollScan(WiFiVector<ScanResult>* completedScan) {
         if (!_scanRunning) return;
         const int16_t count = ::WiFi.scanComplete();
         if (count == WIFI_SCAN_RUNNING) return;
@@ -585,11 +588,15 @@ private:
             ++_state.Revision;
             return;
         }
-        std::vector<ScanResult> results;
+
+        WiFiVector<ScanResult> discarded;
+        auto& results = completedScan != nullptr ? *completedScan : discarded;
+        results.clear();
         results.reserve(static_cast<std::size_t>(count));
         for (int16_t i = 0; i < count; ++i) {
             ScanResult result;
-            result.SSID = ::WiFi.SSID(i).c_str();
+            const auto ssid = ::WiFi.SSID(i);
+            result.SSID.assign(ssid.c_str(), ssid.length());
             result.RSSI = ::WiFi.RSSI(i);
             result.Channel = static_cast<uint8_t>(::WiFi.channel(i));
             result.Security = ConvertSecurity(::WiFi.encryptionType(i));
@@ -602,13 +609,12 @@ private:
         _scanRunning = false;
         _state.Scan = ScanState::Complete;
         ++_state.Revision;
-        if (completedScan) *completedScan = std::move(results);
     }
 
     void BuildNetworkEvents(
         const WiFiRuntimeState& before,
         const WiFiRuntimeState& after,
-        std::vector<WiFiPlatformEvent>& events
+        WiFiVector<WiFiPlatformEvent>& events
     ) {
         const bool hadIP = !IsZero(before.Client.Network.Address);
         const bool hasIP = !IsZero(after.Client.Network.Address);
@@ -624,7 +630,7 @@ private:
         }
     }
 
-    void BuildStationEvents(std::vector<WiFiPlatformEvent>& events) {
+    void BuildStationEvents(WiFiVector<WiFiPlatformEvent>& events) {
         if (!CanHostAP(_configuration.Mode) ||
             ::WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
             _knownStations.clear();
@@ -633,7 +639,7 @@ private:
 
         wifi_sta_list_t current{};
         if (esp_wifi_ap_get_sta_list(&current) != ESP_OK) return;
-        std::vector<MacAddress> stations;
+        WiFiVector<MacAddress> stations;
         stations.reserve(current.num);
         for (int i = 0; i < current.num; ++i) {
             MacAddress mac;
@@ -699,7 +705,7 @@ private:
     uint32_t _clientAttemptStartedMilliseconds = 0;
     uint32_t _nextReconnectMilliseconds = 0;
     uint32_t _reconnectAttempts = 0;
-    std::vector<MacAddress> _knownStations;
+    WiFiVector<MacAddress> _knownStations;
 };
 
 } // namespace ESPressio::WiFi
