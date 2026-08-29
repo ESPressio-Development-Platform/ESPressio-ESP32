@@ -8,12 +8,24 @@
 #include <esp_idf_version.h>
 #include <ESPressio_Memory.hpp>
 
+#ifndef ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_ON_INSTALL
+#define ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_ON_INSTALL 1
+#endif
+
+#ifndef ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_THRESHOLD_BYTES
+#define ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_THRESHOLD_BYTES 64U
+#endif
+
 namespace ESPressio::ESP32Platform {
 
 /// <summary>Snapshot of allocation traffic and active automatic-allocation placement policy.</summary>
 struct MemoryProviderStatistics {
     uint32_t AutomaticRequests{0};
     uint32_t AutomaticBytes{0};
+    uint32_t AutomaticExternalSuccesses{0};
+    uint32_t AutomaticExternalBytes{0};
+    uint32_t AutomaticExternalFallbacks{0};
+    uint32_t AutomaticExternalFallbackBytes{0};
     uint32_t InternalRequests{0};
     uint32_t InternalBytes{0};
     uint32_t ExternalRequiredRequests{0};
@@ -67,10 +79,31 @@ public:
             }
 
             case System::Memory::MemoryPolicy::Automatic:
-            default:
+            default: {
                 _automaticRequests.fetch_add(1, std::memory_order_relaxed);
                 _automaticBytes.fetch_add(recordedBytes, std::memory_order_relaxed);
+
+                const bool preferExternal =
+                    _automaticExternalPreferenceEnabled.load(std::memory_order_acquire) &&
+                    bytes >= static_cast<std::size_t>(
+                        _automaticExternalPreferenceThresholdBytes.load(std::memory_order_relaxed)
+                    );
+                if (preferExternal) {
+                    void* result = TryAllocateWithCaps(
+                        bytes,
+                        alignment,
+                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+                    );
+                    if (result != nullptr) {
+                        _automaticExternalSuccesses.fetch_add(1, std::memory_order_relaxed);
+                        _automaticExternalBytes.fetch_add(recordedBytes, std::memory_order_relaxed);
+                        return result;
+                    }
+                    _automaticExternalFallbacks.fetch_add(1, std::memory_order_relaxed);
+                    _automaticExternalFallbackBytes.fetch_add(recordedBytes, std::memory_order_relaxed);
+                }
                 return AllocateWithCaps(bytes, alignment, MALLOC_CAP_8BIT);
+            }
         }
     }
 
@@ -92,7 +125,8 @@ public:
     /// <remarks>
     /// Capability-constrained allocations such as <c>MALLOC_CAP_INTERNAL</c> or <c>MALLOC_CAP_DMA</c> are not redirected
     /// by this preference. Explicit ESPressio <c>Internal</c>, <c>ExternalPreferred</c>, and <c>ExternalRequired</c>
-    /// allocations continue to use their requested capability masks directly.
+    /// allocations continue to use their requested capability masks directly. ESPressio <c>Automatic</c> allocations
+    /// follow the same threshold and explicitly try PSRAM first before falling back to the ordinary 8-bit heap.
     /// </remarks>
     bool ConfigureAutomaticExternalPreference(std::size_t minimumBytes) noexcept override {
 #if defined(CONFIG_SPIRAM_USE_MALLOC) && CONFIG_SPIRAM_USE_MALLOC
@@ -117,6 +151,10 @@ public:
         MemoryProviderStatistics statistics;
         statistics.AutomaticRequests = _automaticRequests.load(std::memory_order_relaxed);
         statistics.AutomaticBytes = _automaticBytes.load(std::memory_order_relaxed);
+        statistics.AutomaticExternalSuccesses = _automaticExternalSuccesses.load(std::memory_order_relaxed);
+        statistics.AutomaticExternalBytes = _automaticExternalBytes.load(std::memory_order_relaxed);
+        statistics.AutomaticExternalFallbacks = _automaticExternalFallbacks.load(std::memory_order_relaxed);
+        statistics.AutomaticExternalFallbackBytes = _automaticExternalFallbackBytes.load(std::memory_order_relaxed);
         statistics.InternalRequests = _internalRequests.load(std::memory_order_relaxed);
         statistics.InternalBytes = _internalBytes.load(std::memory_order_relaxed);
         statistics.ExternalRequiredRequests = _externalRequiredRequests.load(std::memory_order_relaxed);
@@ -162,6 +200,10 @@ private:
 
     std::atomic<uint32_t> _automaticRequests{0};
     std::atomic<uint32_t> _automaticBytes{0};
+    std::atomic<uint32_t> _automaticExternalSuccesses{0};
+    std::atomic<uint32_t> _automaticExternalBytes{0};
+    std::atomic<uint32_t> _automaticExternalFallbacks{0};
+    std::atomic<uint32_t> _automaticExternalFallbackBytes{0};
     std::atomic<uint32_t> _internalRequests{0};
     std::atomic<uint32_t> _internalBytes{0};
     std::atomic<uint32_t> _externalRequiredRequests{0};
@@ -182,9 +224,19 @@ inline MemoryProvider& GetMemoryProvider() {
     return provider;
 }
 
-/// <summary>Installs the ESP32 System memory provider and returns the previously installed provider.</summary>
+/// <summary>Installs the ESP32 System memory provider, optionally enables ordinary-allocation PSRAM preference, and returns the previously installed provider.</summary>
 inline System::Memory::IMemoryProvider* InstallMemoryProvider() noexcept {
-    return System::Memory::SetProvider(&GetMemoryProvider());
+    auto& provider = GetMemoryProvider();
+    System::Memory::IMemoryProvider* previous =
+        System::Memory::SetProvider(&provider);
+#if ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_ON_INSTALL
+    (void)provider.ConfigureAutomaticExternalPreference(
+        static_cast<std::size_t>(
+            ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_THRESHOLD_BYTES
+        )
+    );
+#endif
+    return previous;
 }
 
 } // namespace ESPressio::ESP32Platform
