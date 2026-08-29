@@ -209,6 +209,24 @@ public:
             return WebResult::Failure(WebError::ResourceExhausted);
         }
 
+        // ESP-IDF writes a trailing NUL even though ESPressio exposes raw
+        // length-delimited header bytes. When the caller has one spare byte,
+        // let ESP-IDF write directly into caller storage and avoid both the
+        // temporary allocation and the subsequent memcpy. Exact-length caller
+        // buffers retain the externally preferred scratch fallback so the
+        // public API does not require space for a terminator.
+        if (capacity > length) {
+            const auto result = httpd_req_get_hdr_value_str(
+                const_cast<httpd_req_t*>(&_request),
+                field.data(),
+                destination,
+                capacity
+            );
+            if (result != ESP_OK) return Detail::ESP32HttpResult(result);
+            bytesWritten = length;
+            return WebResult::Success();
+        }
+
         System::Memory::Vector<
             char,
             System::Memory::MemoryPolicy::ExternalPreferred
