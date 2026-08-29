@@ -4,19 +4,24 @@
 #include <cstdint>
 #include <memory>
 
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/idf_additions.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
+#include <ESPressio_Memory.hpp>
 #include <ESPressio_Queue.hpp>
 
 namespace ESPressio::ESP32Platform {
 
+/// <summary>ESP32 FreeRTOS message queue with optional capability-aware backing storage.</summary>
 class MessageQueue final : public System::Queue::IMessageQueue {
 private:
     QueueHandle_t _queue = nullptr;
     std::size_t _elementSize = 0;
     std::size_t _capacity = 0;
+    bool _createdWithCaps = false;
 
     static TickType_t Ticks(uint32_t timeoutMilliseconds) noexcept {
         if (timeoutMilliseconds == System::Synchronization::WaitForever) return portMAX_DELAY;
@@ -25,23 +30,83 @@ private:
         return ticks;
     }
 
-public:
-    MessageQueue(std::size_t elementSize, std::size_t capacity)
-        : _elementSize(elementSize), _capacity(capacity) {
-        if (elementSize == 0 || capacity == 0) return;
+    void CreateNormal() noexcept {
         _queue = xQueueCreate(
-            static_cast<UBaseType_t>(capacity),
-            static_cast<UBaseType_t>(elementSize)
+            static_cast<UBaseType_t>(_capacity),
+            static_cast<UBaseType_t>(_elementSize)
         );
+        _createdWithCaps = false;
     }
 
+#if configSUPPORT_STATIC_ALLOCATION == 1
+    bool CreateWithCaps(uint32_t capabilities) noexcept {
+        _queue = xQueueCreateWithCaps(
+            static_cast<UBaseType_t>(_capacity),
+            static_cast<UBaseType_t>(_elementSize),
+            static_cast<UBaseType_t>(capabilities)
+        );
+        _createdWithCaps = _queue != nullptr;
+        return _createdWithCaps;
+    }
+#endif
+
+public:
+    /// <summary>Creates a queue using normal FreeRTOS allocation.</summary>
+    MessageQueue(std::size_t elementSize, std::size_t capacity)
+        : MessageQueue(
+            elementSize,
+            capacity,
+            System::Memory::MemoryPolicy::Automatic
+        ) {}
+
+    /// <summary>Creates a queue using the requested ESPressio memory policy.</summary>
+    MessageQueue(
+        std::size_t elementSize,
+        std::size_t capacity,
+        System::Memory::MemoryPolicy policy
+    ) : _elementSize(elementSize), _capacity(capacity) {
+        if (elementSize == 0 || capacity == 0) return;
+
+        switch (policy) {
+            case System::Memory::MemoryPolicy::Automatic:
+            case System::Memory::MemoryPolicy::Internal:
+                CreateNormal();
+                break;
+
+            case System::Memory::MemoryPolicy::ExternalPreferred:
+#if configSUPPORT_STATIC_ALLOCATION == 1
+                if (!CreateWithCaps(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) {
+                    CreateNormal();
+                }
+#else
+                CreateNormal();
+#endif
+                break;
+
+            case System::Memory::MemoryPolicy::ExternalRequired:
+#if configSUPPORT_STATIC_ALLOCATION == 1
+                (void)CreateWithCaps(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#endif
+                break;
+        }
+    }
+
+    /// <summary>Deletes the native queue using the matching FreeRTOS allocation family.</summary>
     ~MessageQueue() override {
         if (_queue != nullptr) {
-            vQueueDelete(_queue);
+#if configSUPPORT_STATIC_ALLOCATION == 1
+            if (_createdWithCaps) {
+                vQueueDeleteWithCaps(_queue);
+            } else
+#endif
+            {
+                vQueueDelete(_queue);
+            }
             _queue = nullptr;
         }
     }
 
+    /// <summary>Indicates whether native queue creation succeeded.</summary>
     bool IsAvailable() const noexcept { return _queue != nullptr; }
 
     System::PlatformResult Send(const void* item, uint32_t timeoutMilliseconds = 0) noexcept override {
@@ -97,6 +162,7 @@ public:
     }
 };
 
+/// <summary>Creates ESP32-backed ESPressio message queues.</summary>
 class QueueProvider final : public System::Queue::IQueueProvider {
 public:
     std::unique_ptr<System::Queue::IMessageQueue> Create(
@@ -104,6 +170,15 @@ public:
         std::size_t capacity
     ) override {
         auto queue = std::make_unique<MessageQueue>(elementSize, capacity);
+        return queue->IsAvailable() ? std::move(queue) : nullptr;
+    }
+
+    std::unique_ptr<System::Queue::IMessageQueue> Create(
+        std::size_t elementSize,
+        std::size_t capacity,
+        System::Memory::MemoryPolicy policy
+    ) override {
+        auto queue = std::make_unique<MessageQueue>(elementSize, capacity, policy);
         return queue->IsAvailable() ? std::move(queue) : nullptr;
     }
 };
