@@ -29,7 +29,7 @@ private:
         }
 
         uint64_t Position() const noexcept override {
-            return static_cast<uint64_t>(_file.position());
+            return _position;
         }
 
         StorageStatus Read(
@@ -41,19 +41,26 @@ private:
             if (buffer == nullptr && capacity != 0) {
                 return StorageStatus::InvalidArgument;
             }
-            if (capacity == 0 || Position() >= _size) {
+            if (capacity == 0 || _position >= _size) {
                 return StorageStatus::Success;
             }
-            bytesRead = _file.read(buffer, capacity);
-            if (bytesRead == 0 && Position() < _size) {
+
+            const uint64_t remaining = _size - _position;
+            const std::size_t requested = remaining < capacity
+                ? static_cast<std::size_t>(remaining)
+                : capacity;
+            bytesRead = _file.read(buffer, requested);
+            if (bytesRead == 0) {
                 return StorageStatus::IoError;
             }
+            _position += static_cast<uint64_t>(bytesRead);
             return StorageStatus::Success;
         }
 
     private:
         fs::File _file;
         uint64_t _size = 0;
+        uint64_t _position = 0;
     };
 
 public:
