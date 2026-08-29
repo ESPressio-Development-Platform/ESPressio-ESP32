@@ -3,7 +3,7 @@
 #include <memory>
 
 #ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
-    #include <cstdio>
+    #include <esp_rom_sys.h>
 #endif
 
 #include <freertos/FreeRTOS.h>
@@ -19,15 +19,16 @@ private:
     SemaphoreHandle_t _semaphore = nullptr;
 
 #ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
+    /// <summary>Emits a low-overhead ROM-console diagnostic without entering newlib stdio locks.</summary>
+    /// <remarks>This path is intended for constrained worker-stack diagnostics and deliberately avoids printf/fflush from newlib, which can consume enough stack to perturb or overflow small FreeRTOS workers.</remarks>
     void Trace(const char* phase) const noexcept {
-        std::printf(
+        esp_rom_printf(
             "[ESPressio ESP32][BinarySignal] phase=%s signal=%p semaphore=%p currentTask=%p\n",
             phase != nullptr ? phase : "unknown",
             static_cast<const void*>(this),
             static_cast<void*>(_semaphore),
             static_cast<void*>(xTaskGetCurrentTaskHandle())
         );
-        std::fflush(stdout);
     }
 #endif
 
