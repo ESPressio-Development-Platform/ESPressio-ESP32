@@ -3,12 +3,59 @@
 #if defined(ARDUINO_ARCH_ESP32)
 
 #include <ESPressio_IFileStorage.hpp>
+#include <ESPressio_PolymorphicMemory.hpp>
 #include <FS.h>
 #include <cstring>
+#include <new>
+#include <utility>
 
 namespace ESPressio::Persistence {
 
 class FileStorageBase : public IFileStorage {
+private:
+    /// <summary>Owns one Arduino filesystem handle for sequential reads until the caller releases the stream.</summary>
+    class FileReadStream final : public IFileReadStream {
+    public:
+        explicit FileReadStream(fs::File file)
+            : _file(std::move(file)),
+              _size(static_cast<uint64_t>(_file.size())) {}
+
+        ~FileReadStream() override {
+            _file.close();
+        }
+
+        uint64_t Size() const noexcept override {
+            return _size;
+        }
+
+        uint64_t Position() const noexcept override {
+            return static_cast<uint64_t>(_file.position());
+        }
+
+        StorageStatus Read(
+            uint8_t* buffer,
+            std::size_t capacity,
+            std::size_t& bytesRead
+        ) override {
+            bytesRead = 0;
+            if (buffer == nullptr && capacity != 0) {
+                return StorageStatus::InvalidArgument;
+            }
+            if (capacity == 0 || Position() >= _size) {
+                return StorageStatus::Success;
+            }
+            bytesRead = _file.read(buffer, capacity);
+            if (bytesRead == 0 && Position() < _size) {
+                return StorageStatus::IoError;
+            }
+            return StorageStatus::Success;
+        }
+
+    private:
+        fs::File _file;
+        uint64_t _size = 0;
+    };
+
 public:
     bool IsReady() const override { return _ready; }
 
@@ -19,6 +66,7 @@ public:
                StorageCapability::Append |
                StorageCapability::CapacityReporting |
                StorageCapability::AtomicReplace |
+               StorageCapability::SequentialRead |
                _additionalCapabilities;
     }
 
@@ -54,6 +102,37 @@ public:
         bytesRead = file.read(buffer, capacity);
         file.close();
         return StorageStatus::Success;
+    }
+
+    /// <summary>Opens one ESP32 filesystem handle for sequential reads and places the stream wrapper in external-preferred memory.</summary>
+    StorageStatus OpenRead(
+        const char* path,
+        FileReadStreamPtr& stream
+    ) const override {
+        stream.reset();
+        if (!_ready) return StorageStatus::NotInitialized;
+        if (!Valid(path)) return StorageStatus::InvalidArgument;
+
+        fs::File file = _fs.open(path, FILE_READ);
+        if (!file || file.isDirectory()) {
+            file.close();
+            return StorageStatus::NotFound;
+        }
+
+        try {
+            stream = System::Memory::MakePolymorphicUnique<
+                IFileReadStream,
+                FileReadStream,
+                System::Memory::MemoryPolicy::ExternalPreferred
+            >(std::move(file));
+        } catch (const std::bad_alloc&) {
+            file.close();
+            return StorageStatus::NoSpace;
+        } catch (...) {
+            file.close();
+            return StorageStatus::UnknownError;
+        }
+        return stream ? StorageStatus::Success : StorageStatus::NoSpace;
     }
 
     StorageStatus Write(const char* path, const uint8_t* data, std::size_t size, WriteMode mode = WriteMode::Replace) override {
