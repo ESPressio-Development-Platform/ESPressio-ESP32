@@ -19,8 +19,6 @@ private:
     SemaphoreHandle_t _semaphore = nullptr;
 
 #ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
-    /// <summary>Emits a low-overhead ROM-console diagnostic without entering newlib stdio locks.</summary>
-    /// <remarks>This path is intended for constrained worker-stack diagnostics and deliberately avoids printf/fflush from newlib, which can consume enough stack to perturb or overflow small FreeRTOS workers.</remarks>
     void Trace(const char* phase) const noexcept {
         esp_rom_printf(
             "[ESPressio ESP32][BinarySignal] phase=%s signal=%p semaphore=%p currentTask=%p\n",
@@ -56,24 +54,16 @@ public:
     /// <summary>Indicates whether the native FreeRTOS semaphore was created successfully.</summary>
     bool IsAvailable() const noexcept { return _semaphore != nullptr; }
 
-    /// <summary>Sets the binary signal from task context.</summary>
     System::PlatformResult Give() noexcept override {
         if (_semaphore == nullptr) {
             return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
         }
-#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
-        Trace("give-begin");
-#endif
         const BaseType_t result = xSemaphoreGive(_semaphore);
-#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
-        Trace(result == pdTRUE ? "give-end-success" : "give-end-busy");
-#endif
         return result == pdTRUE
             ? System::PlatformResult::Succeeded()
             : System::PlatformResult::Failed(System::PlatformStatus::Busy);
     }
 
-    /// <summary>Sets the binary signal from interrupt context.</summary>
     System::PlatformResult GiveFromInterrupt() noexcept override {
         if (_semaphore == nullptr) {
             return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
@@ -86,7 +76,6 @@ public:
             : System::PlatformResult::Failed(System::PlatformStatus::Busy);
     }
 
-    /// <summary>Waits for the binary signal to become set, optionally with a timeout.</summary>
     System::PlatformResult Wait(uint32_t timeoutMilliseconds) noexcept override {
         if (_semaphore == nullptr) {
             return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
@@ -96,19 +85,12 @@ public:
             ticks = pdMS_TO_TICKS(timeoutMilliseconds);
             if (timeoutMilliseconds != 0 && ticks == 0) ticks = 1;
         }
-#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
-        Trace("wait-begin");
-#endif
         const BaseType_t result = xSemaphoreTake(_semaphore, ticks);
-#ifdef ESPRESSIO_ESP32_SYNCHRONIZATION_DIAGNOSTICS
-        Trace(result == pdTRUE ? "wait-end-success" : "wait-end-timeout");
-#endif
         return result == pdTRUE
             ? System::PlatformResult::Succeeded()
             : System::PlatformResult::Failed(System::PlatformStatus::Timeout);
     }
 
-    /// <summary>Clears any currently set state without blocking.</summary>
     System::PlatformResult Reset() noexcept override {
         if (_semaphore == nullptr) {
             return System::PlatformResult::Failed(System::PlatformStatus::Unavailable);
@@ -118,14 +100,92 @@ public:
     }
 };
 
+/// <summary>FreeRTOS-backed non-recursive mutex implementation for ESPressio System.</summary>
+class Mutex final : public System::Synchronization::IMutex {
+    SemaphoreHandle_t _semaphore = nullptr;
+public:
+    Mutex() : _semaphore(xSemaphoreCreateMutex()) {}
+    ~Mutex() override {
+        if (_semaphore != nullptr) vSemaphoreDelete(_semaphore);
+    }
+    bool IsAvailable() const noexcept { return _semaphore != nullptr; }
+    void Lock() noexcept override {
+        if (_semaphore != nullptr) (void)xSemaphoreTake(_semaphore, portMAX_DELAY);
+    }
+    bool TryLock() noexcept override {
+        return _semaphore != nullptr && xSemaphoreTake(_semaphore, 0) == pdTRUE;
+    }
+    void Unlock() noexcept override {
+        if (_semaphore != nullptr) (void)xSemaphoreGive(_semaphore);
+    }
+};
+
+/// <summary>FreeRTOS-backed recursive mutex implementation for ESPressio System.</summary>
+class RecursiveMutex final : public System::Synchronization::IRecursiveMutex {
+    SemaphoreHandle_t _semaphore = nullptr;
+public:
+    RecursiveMutex() : _semaphore(xSemaphoreCreateRecursiveMutex()) {}
+    ~RecursiveMutex() override {
+        if (_semaphore != nullptr) vSemaphoreDelete(_semaphore);
+    }
+    bool IsAvailable() const noexcept { return _semaphore != nullptr; }
+    void Lock() noexcept override {
+        if (_semaphore != nullptr) (void)xSemaphoreTakeRecursive(_semaphore, portMAX_DELAY);
+    }
+    bool TryLock() noexcept override {
+        return _semaphore != nullptr && xSemaphoreTakeRecursive(_semaphore, 0) == pdTRUE;
+    }
+    void Unlock() noexcept override {
+        if (_semaphore != nullptr) (void)xSemaphoreGiveRecursive(_semaphore);
+    }
+};
+
+/// <summary>ESP32 read/write contract implemented with one native FreeRTOS mutex.</summary>
+/// <remarks>Shared and exclusive acquisition intentionally serialize on ESP32. This avoids pthread rwlock state and preserves correctness; true concurrent-reader behaviour can be introduced later behind the same System contract if measurements justify it.</remarks>
+class ReadWriteLock final : public System::Synchronization::IReadWriteLock {
+    SemaphoreHandle_t _semaphore = nullptr;
+public:
+    ReadWriteLock() : _semaphore(xSemaphoreCreateMutex()) {}
+    ~ReadWriteLock() override {
+        if (_semaphore != nullptr) vSemaphoreDelete(_semaphore);
+    }
+    bool IsAvailable() const noexcept { return _semaphore != nullptr; }
+    void Lock() noexcept override {
+        if (_semaphore != nullptr) (void)xSemaphoreTake(_semaphore, portMAX_DELAY);
+    }
+    bool TryLock() noexcept override {
+        return _semaphore != nullptr && xSemaphoreTake(_semaphore, 0) == pdTRUE;
+    }
+    void Unlock() noexcept override {
+        if (_semaphore != nullptr) (void)xSemaphoreGive(_semaphore);
+    }
+    void LockShared() noexcept override { Lock(); }
+    bool TryLockShared() noexcept override { return TryLock(); }
+    void UnlockShared() noexcept override { Unlock(); }
+};
+
 class SynchronizationProvider final : public System::Synchronization::ISynchronizationProvider {
 public:
-    /// <summary>Creates a FreeRTOS-backed binary signal.</summary>
     std::unique_ptr<System::Synchronization::ISignal> CreateBinarySignal(
         bool initiallySet = false
     ) override {
         auto signal = std::make_unique<BinarySignal>(initiallySet);
         return signal->IsAvailable() ? std::move(signal) : nullptr;
+    }
+
+    std::unique_ptr<System::Synchronization::IMutex> CreateMutex() override {
+        auto mutex = std::make_unique<Mutex>();
+        return mutex->IsAvailable() ? std::move(mutex) : nullptr;
+    }
+
+    std::unique_ptr<System::Synchronization::IRecursiveMutex> CreateRecursiveMutex() override {
+        auto mutex = std::make_unique<RecursiveMutex>();
+        return mutex->IsAvailable() ? std::move(mutex) : nullptr;
+    }
+
+    std::unique_ptr<System::Synchronization::IReadWriteLock> CreateReadWriteLock() override {
+        auto lock = std::make_unique<ReadWriteLock>();
+        return lock->IsAvailable() ? std::move(lock) : nullptr;
     }
 };
 
