@@ -13,7 +13,7 @@
 #endif
 
 #ifndef ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_THRESHOLD_BYTES
-#define ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_THRESHOLD_BYTES 0U
+#define ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_THRESHOLD_BYTES 64U
 #endif
 
 namespace ESPressio::ESP32Platform {
@@ -127,10 +127,10 @@ public:
     /// by this preference. Explicit ESPressio <c>Internal</c>, <c>ExternalPreferred</c>, and <c>ExternalRequired</c>
     /// allocations continue to use their requested capability masks directly. ESPressio <c>Automatic</c> allocations
     /// follow the same threshold and explicitly try PSRAM first before falling back to the ordinary 8-bit heap.
-    /// The ESPressio ESP32 installer defaults the threshold to zero so every eligible automatic/default allocation prefers
-    /// PSRAM, preserving internal/DMA-capable DRAM for WiFi, TCP/IP, HTTP, I2S and other capability-constrained consumers.
-    /// Applications with a workload-specific reason to retain small automatic allocations internally may override
-    /// <c>ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_THRESHOLD_BYTES</c> at build time.
+    /// The ESPressio ESP32 installer keeps small ordinary/default allocations on the ordinary heap by default and begins
+    /// preferring PSRAM at 64 bytes. This avoids globally redirecting allocator metadata and other tiny runtime objects while
+    /// still preserving internal/DMA-capable DRAM for larger application allocations. Applications may override
+    /// <c>ESPRESSIO_ESP32_AUTOMATIC_EXTERNAL_PREFERENCE_THRESHOLD_BYTES</c> when a measured workload justifies another value.
     /// </remarks>
     bool ConfigureAutomaticExternalPreference(std::size_t minimumBytes) noexcept override {
 #if defined(CONFIG_SPIRAM_USE_MALLOC) && CONFIG_SPIRAM_USE_MALLOC
@@ -228,7 +228,7 @@ inline MemoryProvider& GetMemoryProvider() {
     return provider;
 }
 
-/// <summary>Installs the ESP32 System memory provider, enables aggressive PSRAM preference for every eligible ordinary allocation by default, and returns the previously installed provider.</summary>
+/// <summary>Installs the ESP32 System memory provider and enables the configurable ordinary-allocation PSRAM preference with a conservative non-zero default threshold.</summary>
 inline System::Memory::IMemoryProvider* InstallMemoryProvider() noexcept {
     auto& provider = GetMemoryProvider();
     System::Memory::IMemoryProvider* previous =
