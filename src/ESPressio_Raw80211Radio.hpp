@@ -32,7 +32,8 @@ struct Raw80211RadioConfiguration {
 
 /// <summary>
 /// ESPressio Radio concrete implemented with ESP32 raw non-QoS IEEE 802.11 data frames.
-/// This provider owns the ESP-IDF promiscuous receive callback while started and transports opaque bytes only.
+/// Driver callbacks only copy accepted frames into a bounded queue and wake RadioWorker; parsing/routing onward happens
+/// outside the Espressif Wi-Fi callback context.
 /// </summary>
 class Raw80211Radio final : public Radio::IRadio {
 private:
@@ -55,6 +56,7 @@ private:
 
     Raw80211RadioConfiguration _configuration{};
     Radio::IRadioReceiver* _receiver = nullptr;
+    Radio::IRadioWorkSignal* _workSignal = nullptr;
     Radio::RadioObserverSubscriptions _observers{};
     Radio::RadioAddress _localAddress{};
     std::array<ReceivedPacket, ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH> _receiveQueue{};
@@ -103,6 +105,10 @@ private:
             std::memcpy(queued.Payload.data(), frame + Dot11HeaderBytes + EncapsulationBytes, payloadLength);
         }
         self->_writeIndex.store(next, std::memory_order_release);
+
+        if (self->_workSignal != nullptr) {
+            self->_workSignal->OnRadioWorkAvailable(*self);
+        }
     }
 
     bool ResolveLocalAddress() noexcept {
@@ -223,9 +229,10 @@ public:
     }
 
     void SetReceiver(Radio::IRadioReceiver* receiver) noexcept override { _receiver = receiver; }
+    void SetWorkSignal(Radio::IRadioWorkSignal* signal) noexcept override { _workSignal = signal; }
     Radio::RadioObserverSubscriptions& Observers() noexcept override { return _observers; }
 
-    void Poll() override {
+    void ProcessInbound() override {
         while (true) {
             const uint8_t read = _readIndex.load(std::memory_order_relaxed);
             if (read == _writeIndex.load(std::memory_order_acquire)) return;
@@ -239,7 +246,6 @@ public:
             view.ReceiveTimestampNanoseconds = queued.TimestampNanoseconds;
             view.Flags = queued.Destination.IsBroadcast() ? Radio::RadioPacketFlag::Broadcast : Radio::RadioPacketFlag::None;
             if (_receiver != nullptr) _receiver->OnRadioPacket(*this, view);
-            _observers.NotifyPacketReceived(*this, view);
             _readIndex.store(static_cast<uint8_t>((read + 1u) % _receiveQueue.size()), std::memory_order_release);
         }
     }
