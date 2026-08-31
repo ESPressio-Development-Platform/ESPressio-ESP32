@@ -12,10 +12,11 @@
 
 #include <WiFi.h>
 #include <esp_err.h>
-#include <esp_timer.h>
 #include <esp_wifi.h>
 
 #include <ESPressio_IRadio.hpp>
+#include <ESPressio_Memory.hpp>
+#include <ESPressio_SystemPlatformClock.hpp>
 
 #ifndef ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH
 #define ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH 4
@@ -32,8 +33,8 @@ struct Raw80211RadioConfiguration {
 
 /// <summary>
 /// ESPressio Radio concrete implemented with ESP32 raw non-QoS IEEE 802.11 data frames.
-/// Driver callbacks only copy accepted frames into a bounded queue and wake RadioWorker; parsing/routing onward happens
-/// outside the Espressif Wi-Fi callback context.
+/// Driver callbacks only copy accepted frames into bounded provider-owned storage and wake RadioWorker; parsing/routing
+/// onward happens outside the Espressif Wi-Fi callback context.
 /// </summary>
 class Raw80211Radio final : public Radio::IRadio {
 private:
@@ -45,6 +46,9 @@ private:
     static constexpr uint8_t LlcSnap[8] = {0xAA, 0xAA, 0x03, 0x00, 0x00, 0x00, 0x88, 0xB5};
     static constexpr uint8_t RadioBssid[MacBytes] = {0x02, 0x45, 0x53, 0x50, 0x52, 0x01};
 
+    static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH > 1, "Raw radio RX queue depth must be at least two");
+    static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH <= 255, "Raw radio RX queue depth must fit its indices");
+
     struct ReceivedPacket {
         Radio::RadioAddress Source{};
         Radio::RadioAddress Destination{};
@@ -54,12 +58,17 @@ private:
         std::array<uint8_t, MaximumPayloadBytes> Payload{};
     };
 
+    using ReceiveQueue = System::Memory::Vector<
+        ReceivedPacket,
+        System::Memory::MemoryPolicy::ExternalPreferred
+    >;
+
     Raw80211RadioConfiguration _configuration{};
     Radio::IRadioReceiver* _receiver = nullptr;
     std::atomic<Radio::IRadioWorkSignal*> _workSignal{nullptr};
     Radio::RadioObserverSubscriptions _observers{};
     Radio::RadioAddress _localAddress{};
-    std::array<ReceivedPacket, ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH> _receiveQueue{};
+    ReceiveQueue _receiveQueue{};
     std::atomic<uint8_t> _writeIndex{0};
     std::atomic<uint8_t> _readIndex{0};
     std::atomic<bool> _started{false};
@@ -80,7 +89,14 @@ private:
 
     static void PromiscuousReceive(void* buffer, wifi_promiscuous_pkt_type_t type) {
         auto* self = CallbackInstance();
-        if (self == nullptr || !self->_started.load(std::memory_order_acquire) || type != WIFI_PKT_DATA || buffer == nullptr) return;
+        if (
+            self == nullptr ||
+            !self->_started.load(std::memory_order_acquire) ||
+            type != WIFI_PKT_DATA ||
+            buffer == nullptr ||
+            self->_receiveQueue.empty()
+        ) return;
+
         const auto* packet = static_cast<const wifi_promiscuous_pkt_t*>(buffer);
         const uint8_t* frame = packet->payload;
         const std::size_t frameLength = packet->rx_ctrl.sig_len;
@@ -100,8 +116,9 @@ private:
         queued.Destination = Radio::RadioAddress::FromBytes(frame + 4, MacBytes);
         queued.Length = payloadLength;
         queued.RssiDbm = packet->rx_ctrl.rssi;
-        queued.TimestampNanoseconds = static_cast<uint64_t>(esp_timer_get_time()) * 1000ULL;
+        queued.TimestampNanoseconds = System::Clock::Monotonic().NowNanoseconds();
         if (payloadLength != 0) {
+            // The Espressif callback owns frame storage. This copy is required because that storage does not outlive the callback.
             std::memcpy(queued.Payload.data(), frame + Dot11HeaderBytes + EncapsulationBytes, payloadLength);
         }
         self->_writeIndex.store(next, std::memory_order_release);
@@ -124,6 +141,14 @@ public:
     bool Start() override {
         if (_started.load(std::memory_order_acquire)) return true;
         if (CallbackInstance() != nullptr && CallbackInstance() != this) return false;
+
+        try {
+            if (_receiveQueue.size() != ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH) {
+                _receiveQueue.resize(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH);
+            }
+        } catch (...) {
+            return false;
+        }
 
         wifi_mode_t mode = WIFI_MODE_NULL;
         const esp_err_t modeResult = esp_wifi_get_mode(&mode);
