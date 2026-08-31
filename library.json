@@ -22,12 +22,12 @@
     },
     {
       "name":"ESPressio-WiFi",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#feature/20-wifi-off-mode",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#item_4_saturation_testing",
       "platforms":"espressif32"
     },
     {
       "name":"ESPressio-Persistence",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#feature/10-platform-storage-abstractions",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#item_4_saturation_testing",
       "platforms":"espressif32"
     }
   ]
