@@ -56,7 +56,7 @@ private:
 
     Raw80211RadioConfiguration _configuration{};
     Radio::IRadioReceiver* _receiver = nullptr;
-    Radio::IRadioWorkSignal* _workSignal = nullptr;
+    std::atomic<Radio::IRadioWorkSignal*> _workSignal{nullptr};
     Radio::RadioObserverSubscriptions _observers{};
     Radio::RadioAddress _localAddress{};
     std::array<ReceivedPacket, ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH> _receiveQueue{};
@@ -106,8 +106,9 @@ private:
         }
         self->_writeIndex.store(next, std::memory_order_release);
 
-        if (self->_workSignal != nullptr) {
-            self->_workSignal->OnRadioWorkAvailable(*self);
+        Radio::IRadioWorkSignal* signal = self->_workSignal.load(std::memory_order_acquire);
+        if (signal != nullptr) {
+            signal->OnRadioWorkAvailable(*self);
         }
     }
 
@@ -229,7 +230,9 @@ public:
     }
 
     void SetReceiver(Radio::IRadioReceiver* receiver) noexcept override { _receiver = receiver; }
-    void SetWorkSignal(Radio::IRadioWorkSignal* signal) noexcept override { _workSignal = signal; }
+    void SetWorkSignal(Radio::IRadioWorkSignal* signal) noexcept override {
+        _workSignal.store(signal, std::memory_order_release);
+    }
     Radio::RadioObserverSubscriptions& Observers() noexcept override { return _observers; }
 
     void ProcessInbound() override {
