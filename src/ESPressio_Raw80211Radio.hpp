@@ -55,6 +55,7 @@ private:
 
     Raw80211RadioConfiguration _configuration{};
     Radio::IRadioReceiver* _receiver = nullptr;
+    Radio::RadioObserverSubscriptions _observers{};
     Radio::RadioAddress _localAddress{};
     std::array<ReceivedPacket, ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH> _receiveQueue{};
     std::atomic<uint8_t> _writeIndex{0};
@@ -70,7 +71,7 @@ private:
     static bool IsOurFrame(const uint8_t* data, std::size_t length) noexcept {
         if (data == nullptr || length < Dot11HeaderBytes + EncapsulationBytes) return false;
         const uint16_t frameControl = static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8u);
-        if ((frameControl & 0x00FCu) != 0x0008u) return false; // non-QoS data
+        if ((frameControl & 0x00FCu) != 0x0008u) return false;
         if (std::memcmp(data + 16, RadioBssid, MacBytes) != 0) return false;
         return std::memcmp(data + Dot11HeaderBytes, LlcSnap, sizeof(LlcSnap)) == 0;
     }
@@ -90,7 +91,7 @@ private:
 
         const uint8_t write = self->_writeIndex.load(std::memory_order_relaxed);
         const uint8_t next = static_cast<uint8_t>((write + 1u) % self->_receiveQueue.size());
-        if (next == self->_readIndex.load(std::memory_order_acquire)) return; // bounded loss under overload; never allocate in Wi-Fi callback
+        if (next == self->_readIndex.load(std::memory_order_acquire)) return;
 
         auto& queued = self->_receiveQueue[write];
         queued.Source = Radio::RadioAddress::FromBytes(frame + 10, MacBytes);
@@ -147,6 +148,7 @@ public:
         _readIndex.store(0, std::memory_order_relaxed);
         _writeIndex.store(0, std::memory_order_relaxed);
         _started.store(true, std::memory_order_release);
+        _observers.NotifyStarted(*this);
         return true;
     }
 
@@ -159,6 +161,7 @@ public:
         }
         _readIndex.store(0, std::memory_order_relaxed);
         _writeIndex.store(0, std::memory_order_relaxed);
+        _observers.NotifyStopped(*this);
     }
 
     bool IsStarted() const noexcept override { return _started.load(std::memory_order_acquire); }
@@ -185,13 +188,17 @@ public:
         const uint8_t* payload,
         std::size_t payloadSize
     ) override {
-        if (!IsStarted()) return {Radio::RadioSendStatus::NotStarted, 0};
-        if (!destination.IsValid() || destination.Length != MacBytes) return {Radio::RadioSendStatus::InvalidAddress, 0};
+        const auto complete = [&](Radio::RadioSendResult result) {
+            _observers.NotifySendCompleted(*this, destination, payloadSize, result);
+            return result;
+        };
+        if (!IsStarted()) return complete({Radio::RadioSendStatus::NotStarted, 0});
+        if (!destination.IsValid() || destination.Length != MacBytes) return complete({Radio::RadioSendStatus::InvalidAddress, 0});
         if ((payload == nullptr && payloadSize != 0) || payloadSize > MaximumPayloadBytes)
-            return {Radio::RadioSendStatus::PayloadTooLarge, 0};
+            return complete({Radio::RadioSendStatus::PayloadTooLarge, 0});
 
         std::array<uint8_t, MaximumFrameBytes> frame{};
-        frame[0] = 0x08; // IEEE 802.11 non-QoS data, ToDS=0, FromDS=0
+        frame[0] = 0x08;
         frame[1] = 0x00;
         std::memcpy(frame.data() + 4, destination.Bytes.data(), MacBytes);
         std::memcpy(frame.data() + 10, _localAddress.Bytes.data(), MacBytes);
@@ -208,32 +215,32 @@ public:
             static_cast<int>(Dot11HeaderBytes + EncapsulationBytes + payloadSize),
             true
         );
-        if (result == ESP_OK) return Radio::RadioSendResult::Accepted();
+        if (result == ESP_OK) return complete(Radio::RadioSendResult::Accepted());
 #ifdef ESP_ERR_NO_MEM
-        if (result == ESP_ERR_NO_MEM) return {Radio::RadioSendStatus::NoMemory, static_cast<int32_t>(result)};
+        if (result == ESP_ERR_NO_MEM) return complete({Radio::RadioSendStatus::NoMemory, static_cast<int32_t>(result)});
 #endif
-        return {Radio::RadioSendStatus::NativeFailure, static_cast<int32_t>(result)};
+        return complete({Radio::RadioSendStatus::NativeFailure, static_cast<int32_t>(result)});
     }
 
     void SetReceiver(Radio::IRadioReceiver* receiver) noexcept override { _receiver = receiver; }
+    Radio::RadioObserverSubscriptions& Observers() noexcept override { return _observers; }
 
     void Poll() override {
         while (true) {
             const uint8_t read = _readIndex.load(std::memory_order_relaxed);
             if (read == _writeIndex.load(std::memory_order_acquire)) return;
             const auto& queued = _receiveQueue[read];
-            if (_receiver != nullptr) {
-                Radio::RadioPacketView view;
-                view.Source = queued.Source;
-                view.Destination = queued.Destination;
-                view.Payload = queued.Length == 0 ? nullptr : queued.Payload.data();
-                view.PayloadSize = queued.Length;
-                view.RssiDbm = queued.RssiDbm;
-                view.ReceiveTimestampNanoseconds = queued.TimestampNanoseconds;
-                view.Flags = queued.Destination.IsBroadcast() ? Radio::RadioPacketFlag::Broadcast : Radio::RadioPacketFlag::None;
-                _receiver->OnRadioPacket(*this, view);
-            }
-            _readIndex.store(static_cast<uint8_t>((read + 1u) % _receiveQueue.size()), std::memory_order_release);
+            Radio::RadioPacketView view;
+            view.Source = queued.Source;
+            view.Destination = queued.Destination;
+            view.Payload = queued.Length == 0 ? nullptr : queued.Payload.data();
+            view.PayloadSize = queued.Length;
+            view.RssiDbm = queued.RssiDbm;
+            view.ReceiveTimestampNanoseconds = queued.TimestampNanoseconds;
+            view.Flags = queued.Destination.IsBroadcast() ? Radio::RadioPacketFlag::Broadcast : Radio::RadioPacketFlag::None;
+            if (_receiver != nullptr) _receiver->OnRadioPacket(*this, view);
+            _observers.NotifyPacketReceived(*this, view);
+            _readIndex.store(static_cast<uint8_t>((read + 1u) % self->_receiveQueue.size()), std::memory_order_release);
         }
     }
 };
