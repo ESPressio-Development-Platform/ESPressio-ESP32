@@ -240,7 +240,7 @@ public:
             view.Flags = queued.Destination.IsBroadcast() ? Radio::RadioPacketFlag::Broadcast : Radio::RadioPacketFlag::None;
             if (_receiver != nullptr) _receiver->OnRadioPacket(*this, view);
             _observers.NotifyPacketReceived(*this, view);
-            _readIndex.store(static_cast<uint8_t>((read + 1u) % self->_receiveQueue.size()), std::memory_order_release);
+            _readIndex.store(static_cast<uint8_t>((read + 1u) % _receiveQueue.size()), std::memory_order_release);
         }
     }
 };
