@@ -107,9 +107,7 @@ private:
         self->_writeIndex.store(next, std::memory_order_release);
 
         Radio::IRadioWorkSignal* signal = self->_workSignal.load(std::memory_order_acquire);
-        if (signal != nullptr) {
-            signal->OnRadioWorkAvailable(*self);
-        }
+        if (signal != nullptr) signal->OnRadioWorkAvailable(*self);
     }
 
     bool ResolveLocalAddress() noexcept {
@@ -235,7 +233,7 @@ public:
     }
     Radio::RadioObserverSubscriptions& Observers() noexcept override { return _observers; }
 
-    void ProcessInbound() override {
+    void DrainInbound() override {
         while (true) {
             const uint8_t read = _readIndex.load(std::memory_order_relaxed);
             if (read == _writeIndex.load(std::memory_order_acquire)) return;
