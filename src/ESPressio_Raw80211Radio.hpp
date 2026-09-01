@@ -87,6 +87,14 @@ private:
         return std::memcmp(data + Dot11HeaderBytes, LlcSnap, sizeof(LlcSnap)) == 0;
     }
 
+    static bool IsBroadcastMac(const uint8_t* address) noexcept {
+        if (address == nullptr) return false;
+        for (std::size_t i = 0; i < MacBytes; ++i) {
+            if (address[i] != 0xFFu) return false;
+        }
+        return true;
+    }
+
     static void PromiscuousReceive(void* buffer, wifi_promiscuous_pkt_type_t type) {
         auto* self = CallbackInstance();
         if (
@@ -101,6 +109,15 @@ private:
         const uint8_t* frame = packet->payload;
         const std::size_t frameLength = packet->rx_ctrl.sig_len;
         if (!IsOurFrame(frame, frameLength)) return;
+
+        // Promiscuous mode reports every matching frame heard on the channel. A concrete radio must only advance
+        // link packets physically addressed to this interface (or link broadcast); otherwise a third node can
+        // accidentally consume/forward a unicast frame intended for another next hop.
+        const uint8_t* destinationMac = frame + 4;
+        if (
+            std::memcmp(destinationMac, self->_localAddress.Bytes.data(), MacBytes) != 0 &&
+            !IsBroadcastMac(destinationMac)
+        ) return;
 
         const std::size_t lengthOffset = Dot11HeaderBytes + sizeof(LlcSnap);
         const uint16_t payloadLength = static_cast<uint16_t>(frame[lengthOffset]) |
