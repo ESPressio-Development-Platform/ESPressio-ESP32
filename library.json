@@ -1,0 +1,29 @@
+{
+  "name": "ESPressio-ESP32",
+  "description": "ESP32-specific implementations of ESPressio hardware/runtime and domain platform abstractions",
+  "keywords": "espressio,esp32,system,memory,psram,allocator,execution,gpio,timing,wifi,persistence,sockets,event,websocket,mqtt,http,web",
+  "authors": {"name":"Simon J. Stuart","maintainer":true,"url":"https://espressio.org"},
+  "build": {"flags":["-std=gnu++17","-DESPRESSIO_ESP32"]},
+  "repository": {"type":"git","url":"https://github.com/ESPressio-Development-Platform/ESPressio-ESP32.git"},
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    {
+      "name":"ESPressio-System",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-System.git#feature/1-system-memory-policy",
+      "platforms":"*"
+    },
+    {
+      "name":"ESPressio-WiFi",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#feature/20-wifi-off-mode",
+      "platforms":"espressif32"
+    },
+    {
+      "name":"ESPressio-Persistence",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#feature/10-platform-storage-abstractions",
+      "platforms":"espressif32"
+    }
+  ]
+}
