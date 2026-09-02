@@ -1,7 +1,7 @@
 {
   "name": "ESPressio-ESP32",
   "description": "ESP32-specific implementations of ESPressio hardware/runtime and domain platform abstractions",
-  "keywords": "espressio,esp32,system,memory,psram,allocator,execution,gpio,timing,wifi,persistence,sockets,event,websocket,mqtt,http,web",
+  "keywords": "espressio,esp32,system,memory,psram,allocator,execution,gpio,timing,wifi,radio,persistence,sockets,event,websocket,mqtt,http,web",
   "authors": {"name":"Simon J. Stuart","maintainer":true,"url":"https://espressio.org"},
   "build": {"flags":["-std=gnu++17","-DESPRESSIO_ESP32"]},
   "repository": {"type":"git","url":"https://github.com/ESPressio-Development-Platform/ESPressio-ESP32.git"},
@@ -16,13 +16,18 @@
       "platforms":"*"
     },
     {
+      "name":"ESPressio-Radio",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Radio.git#feature/1-radio-transport",
+      "platforms":"*"
+    },
+    {
       "name":"ESPressio-WiFi",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#feature/20-wifi-off-mode",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#item_4_saturation_testing",
       "platforms":"espressif32"
     },
     {
       "name":"ESPressio-Persistence",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#feature/10-platform-storage-abstractions",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#item_4_saturation_testing",
       "platforms":"espressif32"
     }
   ]

@@ -15,6 +15,9 @@
 #if defined(ARDUINO_ARCH_ESP32)
 #include "ESPressio_WiFiPlatform.hpp"
 #include "ESPressio_WiFiRadio.hpp"
+#if __has_include(<ESPressio_IRadio.hpp>)
+#include "ESPressio_Raw80211Radio.hpp"
+#endif
 #if __has_include(<ESPressio_HttpServer.hpp>)
 #include "ESPressio_HttpServerPlatform.hpp"
 #endif
