@@ -12,22 +12,22 @@
   "dependencies": [
     {
       "name":"ESPressio-System",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-System.git#feature/1-system-memory-policy",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-System.git#main",
       "platforms":"*"
     },
     {
       "name":"ESPressio-Radio",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Radio.git#feature/1-radio-transport",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Radio.git#main",
       "platforms":"*"
     },
     {
       "name":"ESPressio-WiFi",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#item_4_saturation_testing",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#main",
       "platforms":"espressif32"
     },
     {
       "name":"ESPressio-Persistence",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#item_4_saturation_testing",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#main",
       "platforms":"espressif32"
     }
   ]
