@@ -18,11 +18,11 @@ Higher-level libraries should depend on their abstraction owners, not on ESPress
 
 ```ini
 lib_deps =
-    https://github.com/ESPressio-Development-Platform/ESPressio-System.git#feature/1-system-memory-policy
-    https://github.com/ESPressio-Development-Platform/ESPressio-ESP32.git#feature/1-system-memory-provider
+    https://github.com/ESPressio-Development-Platform/ESPressio-System.git#main
+    https://github.com/ESPressio-Development-Platform/ESPressio-ESP32.git#main
 ```
 
-ESPressio-ESP32 currently also consumes the active WiFi and Persistence contract branches because it provides their concrete implementations:
+ESPressio-ESP32 currently also consumes the active WiFi and Persistence contracts because it provides their concrete implementations:
 
 ```text
 ESPressio-ESP32
@@ -31,7 +31,7 @@ ESPressio-ESP32
     -> ESPressio-Persistence (contracts only)
 ```
 
-After the coordinated releases are published, use released versions rather than development branches.
+During the release restructuring, consume ESPressio dependencies from their `main` branches until the new platform-wide 1.0.0 release generation is published.
 
 ## Installing the System providers
 
