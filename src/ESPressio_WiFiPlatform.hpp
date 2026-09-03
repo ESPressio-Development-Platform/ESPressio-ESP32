@@ -14,6 +14,8 @@
 #include <ESPressio_Clock.hpp>
 #include <ESPressio_WiFi.hpp>
 
+#include "ESPressio_WiFiPhyCoordinator.hpp"
+
 namespace ESPressio::WiFi {
 
 class WiFiPlatform final : public IWiFiPlatform {
@@ -37,6 +39,10 @@ public:
             case WiFiMode::Off: mode = WIFI_MODE_NULL; break;
         }
         if (!::WiFi.mode(mode)) return WiFiStatus::PlatformError;
+
+        // Ordinary ESPressio Wi-Fi is the owner of shared ESP32 PHY policy while its configured mode is active.
+        // Raw80211 consults this same coordinator and therefore follows the effective Wi-Fi channel rather than retuning it.
+        ESP32Platform::SharedWiFiPhy().SetWiFiServiceActive(mode != WIFI_MODE_NULL);
 
         if (configuration.Mode == WiFiMode::Off || configuration.Mode == WiFiMode::Disabled) {
             _state = WiFiRuntimeState{};
@@ -81,6 +87,7 @@ public:
         _manualDisconnect = true;
         _scanRunning = false;
         if (!::WiFi.mode(WIFI_MODE_NULL)) return WiFiStatus::PlatformError;
+        ESP32Platform::SharedWiFiPhy().SetWiFiServiceActive(false);
         _configuration.Mode = WiFiMode::Off;
         _state = WiFiRuntimeState{};
         _state.Mode = WiFiMode::Off;
@@ -434,11 +441,10 @@ private:
     }
 
     void ApplyRadioSettings() {
-        int8_t dbm = _configuration.TxPowerDbm;
-        if (dbm < 2) dbm = 2;
-        if (dbm > 20) dbm = 20;
-        (void)esp_wifi_set_max_tx_power(static_cast<int8_t>(dbm * 4));
-        (void)esp_wifi_set_ps(_configuration.PowerSave ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
+        (void)ESP32Platform::SharedWiFiPhy().ApplyWiFiPolicy(
+            _configuration.TxPowerDbm,
+            _configuration.PowerSave
+        );
     }
 
     const WiFiString& ActiveSSID() const {
