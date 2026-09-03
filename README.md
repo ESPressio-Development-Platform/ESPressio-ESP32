@@ -12,7 +12,7 @@ The repository name supplies the platform context. Concrete capability names ins
 
 Use ESPressio-ESP32 from a top-level ESP32 application to install concrete providers and compose target-specific implementations required by portable ESPressio code.
 
-Higher-level libraries should depend on their abstraction owners, not on ESPressio-ESP32 itself. Generic runtime consumers depend on ESPressio-System; WiFi-domain code depends on ESPressio-WiFi; persistence-domain code depends on ESPressio-Persistence. ESPressio-ESP32 supplies the ESP32 implementations.
+Higher-level libraries should depend on their abstraction owners, not on ESPressio-ESP32 itself. Generic runtime consumers depend on ESPressio-System; Radio-domain code depends on ESPressio-Radio; WiFi-domain code depends on ESPressio-WiFi; persistence-domain code depends on ESPressio-Persistence. ESPressio-ESP32 supplies the ESP32 implementations.
 
 ## Installation during coordinated development
 
@@ -22,11 +22,12 @@ lib_deps =
     https://github.com/ESPressio-Development-Platform/ESPressio-ESP32.git#main
 ```
 
-ESPressio-ESP32 currently also consumes the active WiFi and Persistence contracts because it provides their concrete implementations:
+ESPressio-ESP32 currently also consumes the active Radio, WiFi and Persistence contracts because it provides their concrete implementations:
 
 ```text
 ESPressio-ESP32
     -> ESPressio-System
+    -> ESPressio-Radio       (contract only)
     -> ESPressio-WiFi        (contract only)
     -> ESPressio-Persistence (contracts only)
 ```
@@ -178,6 +179,41 @@ ESPressio::WiFi::WiFiPlatform wifiPlatform;
 
 `ESPressio_WiFiRadio.hpp` contains RF-level helpers used when native radio policy/fingerprints are required. Its public helper names are likewise contextual (`WiFiRadioFingerprint`, `ReadWiFiRadioFingerprint`, `ApplyWiFiRadioPolicy`) rather than redundantly platform-qualified.
 
+## BLE Radio implementation
+
+`ESPressio_BLERadio.hpp` provides `ESPressio::ESP32Platform::BLERadio`, a concrete implementation of the hardware-neutral `ESPressio::Radio::IRadio` contract using the ESP32 integrated Bluetooth Low Energy radio.
+
+The baseline bearer deliberately uses legacy non-connectable advertising and passive scanning so it remains applicable to original ESP32-class BLE hardware. BLE is treated only as an opaque Radio bearer: ESPressio-Mesh routing, membership, admission, identities, primitive semantics and policy remain outside this provider.
+
+```cpp
+#include <ESPressio_ESP32.hpp>
+#include <ESPressio_Radio.hpp>
+
+ESPressio::ESP32Platform::BLERadioConfiguration configuration;
+configuration.ManufacturerCompanyIdentifier = 0xFFFF; // development/testing identifier
+
+ESPressio::ESP32Platform::BLERadio bleRadio(configuration);
+ESPressio::Radio::RadioTransport radioTransport;
+ESPressio::Radio::RadioWorker radioWorker(radioTransport);
+
+radioWorker.AddInterface(bleRadio);
+bleRadio.Start();
+```
+
+All peers sharing this bearer must use the same `ManufacturerCompanyIdentifier`. `0xFFFF` is the Bluetooth SIG testing value and should be replaced with an appropriately assigned company identifier for a production product.
+
+Legacy advertising provides a 20-byte physical ESPressio Radio payload after the BLE advertisement envelope. `RadioTransport` remains responsible for bounded hop-local fragmentation/reassembly above that physical MTU; `BLERadio` does not duplicate transport fragmentation or acquire Mesh responsibilities.
+
+Transmit packets are accepted into a bounded queue and advertised for a configurable dwell interval. Receive GAP callbacks perform only bounded recognition/copying and wake `RadioWorker`; packet delivery and observer notification are deferred to worker context.
+
+The current Bluedroid GAP callback is process-global, so one started `BLERadio` instance owns GAP callback coordination. Independent application code must not replace that callback while the Radio is active. WiFi may continue to operate concurrently through the ESP32 WiFi/Bluetooth coexistence facilities; actual throughput/latency under application load remains target-dependent and should be validated on-device.
+
+### Clock-synchronisation limitation
+
+`BLERadio` intentionally does **not** advertise `RadioCapability::ReceiveTimestamp` or `RadioCapability::TransmitTimestamp` at present. The ordinary Bluedroid scan-result callback does not expose a demonstrated near-RF receive timestamp, and callback arrival time must not be presented as sufficiently precise timing evidence.
+
+This is especially important for applications requiring reliable inter-node synchronization below 1 ms. BLE may be used as the Mesh bearer independently of whether it later qualifies as a high-precision Timing bearer. Timestamp capabilities should only be enabled after controller/driver-level timing characterization under realistic BLE/WiFi coexistence load demonstrates adequate worst-case uncertainty margin.
+
 ## Persistence platform implementations
 
 Hardware-backed Persistence providers are supplied here rather than by ESPressio-Persistence itself:
@@ -226,7 +262,7 @@ ESPressio::ESP32Platform
 
 rather than `ESPressio::ESP32`, because Arduino/ESP32 toolchains may define `ESP32` as a preprocessor macro. The namespace identifies the implementation package; contained provider type names remain contextual and neutral.
 
-Domain implementations continue to satisfy interfaces in their domain namespaces; for example `ESPressio::WiFi::WiFiPlatform` implements `ESPressio::WiFi::IWiFiPlatform`.
+Domain implementations continue to satisfy interfaces in their domain namespaces; for example `ESPressio::WiFi::WiFiPlatform` implements `ESPressio::WiFi::IWiFiPlatform` and `ESPressio::ESP32Platform::BLERadio` implements `ESPressio::Radio::IRadio`.
 
 ## Architectural boundary
 
@@ -248,7 +284,8 @@ This prevents ESPressio-System from becoming a catch-all while preventing every 
 - C++17.
 - No RTTI requirement for the platform layer itself.
 - ESPressio-System is the base abstraction dependency.
-- WiFi/Persistence dependencies are present because this repository implements those domain contracts.
+- Radio/WiFi/Persistence dependencies are present because this repository implements those domain contracts.
+- `BLERadio` is exposed when the target SDK configuration enables BLE with the Bluedroid host.
 - Arduino-specific adapters are exposed only when compiling with the Arduino framework.
 
 `PLATFORM_ABSTRACTIONS.md` records the abstraction tranche in detail. See `OPTIMISATIONS.md` for memory-provider implementation history and `CHANGELOG.md` for release-facing changes.
