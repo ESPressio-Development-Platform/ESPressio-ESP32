@@ -6,6 +6,7 @@ on:
       - main
       - 'feature/**'
       - 'optimisation/**'
+      - structural_realignment_propagation_ESPressio-Mesh
   pull_request:
 
 jobs:
