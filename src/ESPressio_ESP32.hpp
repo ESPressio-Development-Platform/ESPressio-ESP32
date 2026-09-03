@@ -13,6 +13,7 @@
 #endif
 
 #if defined(ARDUINO_ARCH_ESP32)
+#include "ESPressio_WiFiPhyCoordinator.hpp"
 #include "ESPressio_WiFiPlatform.hpp"
 #include "ESPressio_WiFiRadio.hpp"
 #if __has_include(<ESPressio_IRadio.hpp>)
