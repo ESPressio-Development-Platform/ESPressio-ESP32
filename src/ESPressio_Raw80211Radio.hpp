@@ -18,6 +18,8 @@
 #include <ESPressio_Memory.hpp>
 #include <ESPressio_SystemPlatformClock.hpp>
 
+#include "ESPressio_WiFiPhyCoordinator.hpp"
+
 #ifndef ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH
 #define ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH 4
 #endif
@@ -27,7 +29,14 @@ namespace ESPressio::ESP32Platform {
 /// <summary>Configuration for the ESP32 integrated Wi-Fi raw IEEE 802.11 packet-radio provider.</summary>
 struct Raw80211RadioConfiguration {
     wifi_interface_t Interface = WIFI_IF_STA;
+
+    /// <summary>
+    /// Preferred raw-radio channel. Zero follows the effective shared Wi-Fi PHY channel. A non-zero value may constrain
+    /// the PHY only while ordinary ESPressio Wi-Fi is inactive; when Wi-Fi owns a different channel this radio becomes
+    /// temporarily unavailable rather than retuning/disrupting the shared PHY.
+    /// </summary>
     uint8_t Channel = 0;
+
     bool InitializeStationModeWhenNeeded = true;
 };
 
@@ -42,6 +51,7 @@ private:
     static constexpr std::size_t Dot11HeaderBytes = 24;
     static constexpr std::size_t EncapsulationBytes = 10;
     static constexpr std::size_t MaximumPayloadBytes = 270;
+    static constexpr uint16_t MaximumLogicalTransferBytes = 4096;
     static constexpr std::size_t MaximumFrameBytes = Dot11HeaderBytes + EncapsulationBytes + MaximumPayloadBytes;
     static constexpr uint8_t LlcSnap[8] = {0xAA, 0xAA, 0x03, 0x00, 0x00, 0x00, 0x88, 0xB5};
     static constexpr uint8_t RadioBssid[MacBytes] = {0x02, 0x45, 0x53, 0x50, 0x52, 0x01};
@@ -97,12 +107,6 @@ private:
         return true;
     }
 
-    /// <summary>Maps the ESP Wi-Fi driver's packet-arrival timestamp into the active monotonic nanosecond domain.</summary>
-    /// <remarks>
-    /// wifi_pkt_rx_ctrl_t::timestamp is the radio driver's local receive time in microseconds. The 32-bit value wraps,
-    /// so the nearest congruent timestamp to the callback-time monotonic clock is selected before conversion to nanoseconds.
-    /// This preserves the hardware/driver receive instant instead of substituting callback execution time.
-    /// </remarks>
     static uint64_t RecoverReceiveTimestampNanoseconds(uint32_t receiveTimestampMicroseconds) noexcept {
         const uint64_t nowNanoseconds = System::Clock::Monotonic().NowNanoseconds();
         const uint64_t nowMicroseconds = nowNanoseconds / MicrosecondsToNanoseconds;
@@ -137,9 +141,6 @@ private:
         const std::size_t frameLength = packet->rx_ctrl.sig_len;
         if (!IsOurFrame(frame, frameLength)) return;
 
-        // Promiscuous mode reports every matching frame heard on the channel. A concrete radio must only advance
-        // link packets physically addressed to this interface (or link broadcast); otherwise a third node can
-        // accidentally consume/forward a unicast frame intended for another next hop.
         const uint8_t* destinationMac = frame + 4;
         if (
             std::memcmp(destinationMac, self->_localAddress.Bytes.data(), MacBytes) != 0 &&
@@ -162,7 +163,6 @@ private:
         queued.RssiDbm = packet->rx_ctrl.rssi;
         queued.TimestampNanoseconds = RecoverReceiveTimestampNanoseconds(packet->rx_ctrl.timestamp);
         if (payloadLength != 0) {
-            // The Espressif callback owns frame storage. This copy is required because that storage does not outlive the callback.
             std::memcpy(queued.Payload.data(), frame + Dot11HeaderBytes + EncapsulationBytes, payloadLength);
         }
         self->_writeIndex.store(next, std::memory_order_release);
@@ -176,6 +176,10 @@ private:
         if (esp_wifi_get_mac(_configuration.Interface, address) != ESP_OK) return false;
         _localAddress = Radio::RadioAddress::FromBytes(address, MacBytes);
         return true;
+    }
+
+    bool SharedPhyAvailable(bool applyWhenUnconstrained) const noexcept {
+        return static_cast<bool>(SharedWiFiPhy().ResolveRawAccess(_configuration.Channel, applyWhenUnconstrained));
     }
 
 public:
@@ -204,7 +208,7 @@ public:
         if (_configuration.Interface == WIFI_IF_STA && mode == WIFI_MODE_AP) return false;
         if (_configuration.Interface == WIFI_IF_AP && mode == WIFI_MODE_STA) return false;
 
-        if (_configuration.Channel != 0 && esp_wifi_set_channel(_configuration.Channel, WIFI_SECOND_CHAN_NONE) != ESP_OK) return false;
+        if (!SharedPhyAvailable(true)) return false;
         if (!ResolveLocalAddress()) return false;
 
         bool promiscuous = false;
@@ -251,7 +255,8 @@ public:
             Radio::RadioCapability::ReceiveTimestamp |
             Radio::RadioCapability::CarrierSense,
             static_cast<uint16_t>(MaximumPayloadBytes),
-            static_cast<uint8_t>(MacBytes)
+            static_cast<uint8_t>(MacBytes),
+            MaximumLogicalTransferBytes
         };
     }
 
@@ -267,6 +272,7 @@ public:
             return result;
         };
         if (!IsStarted()) return complete({Radio::RadioSendStatus::NotStarted, 0});
+        if (!SharedPhyAvailable(false)) return complete({Radio::RadioSendStatus::Busy, 0});
         if (!destination.IsValid() || destination.Length != MacBytes) return complete({Radio::RadioSendStatus::InvalidAddress, 0});
         if ((payload == nullptr && payloadSize != 0) || payloadSize > MaximumPayloadBytes)
             return complete({Radio::RadioSendStatus::PayloadTooLarge, 0});
@@ -303,6 +309,11 @@ public:
     Radio::RadioObserverSubscriptions& Observers() noexcept override { return _observers; }
 
     void DrainInbound() override {
+        if (!SharedPhyAvailable(false)) {
+            _readIndex.store(_writeIndex.load(std::memory_order_acquire), std::memory_order_release);
+            return;
+        }
+
         while (true) {
             const uint8_t read = _readIndex.load(std::memory_order_relaxed);
             if (read == _writeIndex.load(std::memory_order_acquire)) return;
