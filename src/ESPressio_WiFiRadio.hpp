@@ -7,8 +7,11 @@
 #include <cstdint>
 #include <esp_wifi.h>
 
+#include "ESPressio_WiFiPhyCoordinator.hpp"
+
 namespace ESPressio::WiFi {
 
+/// <summary>Diagnostic snapshot of hardware-global ESP32 Wi-Fi PHY state.</summary>
 struct WiFiRadioFingerprint {
     wifi_mode_t Mode = WIFI_MODE_NULL;
     uint8_t PrimaryChannel = 0;
@@ -37,6 +40,7 @@ struct WiFiRadioFingerprint {
     }
 };
 
+/// <summary>Reads current shared Wi-Fi PHY state without mutating it.</summary>
 inline WiFiRadioFingerprint ReadWiFiRadioFingerprint() {
     WiFiRadioFingerprint result;
     result.ModeAvailable = esp_wifi_get_mode(&result.Mode) == ESP_OK;
@@ -48,15 +52,11 @@ inline WiFiRadioFingerprint ReadWiFiRadioFingerprint() {
     return result;
 }
 
+/// <summary>
+/// Applies ordinary Wi-Fi's hardware-global transmit-power/power-save policy through the single ESP32 PHY coordinator.
+/// </summary>
 inline bool ApplyWiFiRadioPolicy(int8_t txPowerDbm, bool powerSave) {
-    if (txPowerDbm < 2) txPowerDbm = 2;
-    if (txPowerDbm > 20) txPowerDbm = 20;
-
-    if (esp_wifi_set_max_tx_power(static_cast<int8_t>(txPowerDbm * 4)) != ESP_OK)
-        return false;
-    if (esp_wifi_set_ps(powerSave ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE) != ESP_OK)
-        return false;
-    return true;
+    return ESP32Platform::SharedWiFiPhy().ApplyWiFiPolicy(txPowerDbm, powerSave);
 }
 
 } // namespace ESPressio::WiFi
