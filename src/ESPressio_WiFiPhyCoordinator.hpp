@@ -5,6 +5,7 @@
 #endif
 
 #include <cstdint>
+#include <mutex>
 
 #include <esp_err.h>
 #include <esp_wifi.h>
@@ -13,14 +14,12 @@
 
 namespace ESPressio::ESP32Platform {
 
-/// <summary>Outcome of asking the shared ESP32 Wi-Fi PHY to service a Raw80211 radio channel requirement.</summary>
 enum class RawWiFiPhyAccessStatus : uint8_t {
     Available,
     WiFiServiceConflict,
     DriverUnavailable
 };
 
-/// <summary>Resolved shared-PHY state for one Raw80211 access check.</summary>
 struct RawWiFiPhyAccess {
     RawWiFiPhyAccessStatus Status = RawWiFiPhyAccessStatus::DriverUnavailable;
     uint8_t EffectiveChannel = 0;
@@ -45,19 +44,16 @@ public:
     WiFiPhyCoordinator(const WiFiPhyCoordinator&) = delete;
     WiFiPhyCoordinator& operator=(const WiFiPhyCoordinator&) = delete;
 
-    /// <summary>Marks whether the ordinary ESPressio Wi-Fi service currently owns shared-PHY policy.</summary>
     void SetWiFiServiceActive(bool active) noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         _wifiServiceActive = active;
     }
 
-    /// <summary>Returns whether ordinary Wi-Fi currently owns shared-PHY policy.</summary>
     bool WiFiServiceActive() const noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         return _wifiServiceActive;
     }
 
-    /// <summary>Applies ordinary Wi-Fi's global transmit-power and power-save policy through the single PHY owner.</summary>
     bool ApplyWiFiPolicy(int8_t txPowerDbm, bool powerSave) noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         if (txPowerDbm < 2) txPowerDbm = 2;
@@ -66,11 +62,6 @@ public:
         return esp_wifi_set_ps(powerSave ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE) == ESP_OK;
     }
 
-    /// <summary>
-    /// Resolves whether Raw80211 may use its requested channel without disrupting ordinary Wi-Fi.
-    /// </summary>
-    /// <param name="requestedChannel">Zero to follow the current shared channel; otherwise a fixed requested channel.</param>
-    /// <param name="applyWhenUnconstrained">When true and ordinary Wi-Fi is inactive, apply a non-zero requested channel.</param>
     RawWiFiPhyAccess ResolveRawAccess(uint8_t requestedChannel, bool applyWhenUnconstrained) noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
 
@@ -110,7 +101,6 @@ private:
     friend WiFiPhyCoordinator& SharedWiFiPhy() noexcept;
 };
 
-/// <summary>Returns the process-wide ESP32 shared Wi-Fi PHY coordinator.</summary>
 inline WiFiPhyCoordinator& SharedWiFiPhy() noexcept {
     static WiFiPhyCoordinator instance;
     return instance;
