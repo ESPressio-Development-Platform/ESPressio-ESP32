@@ -18,6 +18,7 @@
 #include "ESPressio_WiFiRadio.hpp"
 #if __has_include(<ESPressio_IRadio.hpp>)
 #include "ESPressio_Raw80211Radio.hpp"
+#include "ESPressio_BLERadio.hpp"
 #endif
 #if __has_include(<ESPressio_HttpServer.hpp>)
 #include "ESPressio_HttpServerPlatform.hpp"
