@@ -6,7 +6,7 @@
 #include <ESPressio_Raw80211Radio.hpp>
 
 namespace {
-ESPressio::Radio::RadioTransport radioTransport(1);
+ESPressio::Radio::RadioTransport radioTransport;
 ESPressio::Radio::RadioWorker radioWorker(radioTransport);
 ESPressio::ESP32Platform::Raw80211Radio rawRadio;
 }
@@ -23,8 +23,9 @@ void setup() {
     const auto statistics =
         ESPressio::ESP32Platform::GetMemoryProvider().Statistics();
 
-    // Compile the worker-owned inbound path without starting RF in this smoke target.
-    const bool interfaceAttached = radioWorker.AddInterface(rawRadio, true);
+    // Compile the worker-owned direct-link inbound path without starting RF in this smoke target.
+    // Route selection is intentionally absent: it belongs to ESPressio-Mesh, not RadioWorker/RadioTransport.
+    const bool interfaceAttached = radioWorker.AddInterface(rawRadio);
 
     volatile int observed = values.front();
     volatile uint32_t requests = statistics.ExternalPreferredRequests;
