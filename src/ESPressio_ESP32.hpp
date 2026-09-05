@@ -8,6 +8,10 @@
 #include "ESPressio_IDFGPIOProvider.hpp"
 #include "ESPressio_EntropyProvider.hpp"
 
+#if __has_include(<ESPressio_MeshCapacityProfile.hpp>)
+#include "ESPressio_ESP32MeshCapacityProfile.hpp"
+#endif
+
 #if defined(ARDUINO)
 #include "ESPressio_ArduinoGPIOProvider.hpp"
 #endif

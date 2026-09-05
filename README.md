@@ -204,6 +204,12 @@ All peers sharing this bearer must use the same `ManufacturerCompanyIdentifier`.
 
 Legacy advertising provides a 20-byte physical ESPressio Radio payload after the BLE advertisement envelope. `RadioTransport` remains responsible for bounded hop-local fragmentation/reassembly above that physical MTU; `BLERadio` does not duplicate transport fragmentation or acquire Mesh responsibilities.
 
+### Mesh capacity profile
+
+`InternalMemoryMeshCapacityProfile<MeshTaskStackBytes, OtherApplicationAndCompositionBytes>` is the named ESP32 Mesh v1 build profile. It selects 4096 bytes for each complete inbound Mesh delivery, 512 bytes per protected control slot, 3584 bytes per bounded-owned application payload, and requires Radio to compile with four 4096-byte reassembly slots. The application payload value leaves room for both the end-to-end and hop-protection headers/tags inside one 4096-byte Radio logical transfer; the control value holds the largest hop-wrapped confirmed v1 handshake.
+
+The two template arguments are deliberately mandatory. A shipping firmware must account its actual Mesh task stacks and all other application/composition storage instead of inheriting invented platform defaults. Pass the resulting type, concrete security authority and compiled Radio transport to `MeshWholeDeviceMemoryAccounting` for the target-native total.
+
 Transmit packets are accepted into a bounded queue and advertised for a configurable dwell interval. Receive GAP callbacks perform only bounded recognition/copying and wake `RadioWorker`; packet delivery and observer notification are deferred to worker context.
 
 The current Bluedroid GAP callback is process-global, so one started `BLERadio` instance owns GAP callback coordination. Independent application code must not replace that callback while the Radio is active. WiFi may continue to operate concurrently through the ESP32 WiFi/Bluetooth coexistence facilities; actual throughput/latency under application load remains target-dependent and should be validated on-device.

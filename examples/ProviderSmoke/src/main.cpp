@@ -1,6 +1,12 @@
 #include <Arduino.h>
 
 #include <ESPressio_ESP32.hpp>
+
+using MeshCapacityProfile = ESPressio::ESP32Platform::InternalMemoryMeshCapacityProfile<8192U, 16384U>;
+static_assert(MeshCapacityProfile::Identifier == 0x45533332U);
+static_assert(MeshCapacityProfile::InboundDeliveryPool::MaximumBytesPerSlot == 4096U);
+static_assert(MeshCapacityProfile::ControlFramePool::MaximumBytesPerSlot == 512U);
+static_assert(MeshCapacityProfile::ApplicationPayloadPool::MaximumBytesPerSlot == 3584U);
 #include <ESPressio_Memory.hpp>
 #include <ESPressio_Radio.hpp>
 #include <ESPressio_Raw80211Radio.hpp>

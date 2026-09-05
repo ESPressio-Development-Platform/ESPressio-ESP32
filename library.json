@@ -21,6 +21,11 @@
       "platforms":"*"
     },
     {
+      "name":"ESPressio-Mesh",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Mesh.git#structural_realignment_propagation",
+      "platforms":"*"
+    },
+    {
       "name":"ESPressio-WiFi",
       "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#structural_realignment",
       "platforms":"espressif32"
