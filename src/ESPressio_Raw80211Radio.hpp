@@ -26,6 +26,9 @@
 
 namespace ESPressio::ESP32Platform {
 
+/// <summary>Compile-time contract: Raw80211 RX evidence uses System::Clock::Monotonic's domain.</summary>
+inline constexpr bool Raw80211ReceiveTimestampUsesSystemMonotonic = true;
+
 /// <summary>Configuration for the ESP32 integrated Wi-Fi raw IEEE 802.11 packet-radio provider.</summary>
 struct Raw80211RadioConfiguration {
     wifi_interface_t Interface = WIFI_IF_STA;
