@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 #include <WiFi.h>
 #include <esp_err.h>
@@ -58,6 +59,7 @@ private:
     static constexpr std::size_t MaximumFrameBytes = Dot11HeaderBytes + EncapsulationBytes + MaximumPayloadBytes;
     static constexpr uint8_t LlcSnap[8] = {0xAA, 0xAA, 0x03, 0x00, 0x00, 0x00, 0x88, 0xB5};
     static constexpr uint8_t RadioBssid[MacBytes] = {0x02, 0x45, 0x53, 0x50, 0x52, 0x01};
+    static constexpr std::size_t ReceiveTimestampAlignmentSamples = 32;
 
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH > 1, "Raw radio RX queue depth must be at least two");
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH <= 255, "Raw radio RX queue depth must fit its indices");
@@ -86,6 +88,13 @@ private:
     std::atomic<uint8_t> _readIndex{0};
     std::atomic<bool> _started{false};
     bool _promiscuousWasEnabled = false;
+    bool _hasReceiveTimestampAlignment = false;
+    uint32_t _lastWiFiReceiveTimestampMicroseconds = 0;
+    uint64_t _extendedWiFiReceiveTimestampMicroseconds = 0;
+    int64_t _minimumReceiveCallbackLagMicroseconds = 0;
+    std::array<int64_t, ReceiveTimestampAlignmentSamples> _receiveTimestampAlignments{};
+    uint8_t _receiveTimestampAlignmentCount = 0;
+    uint8_t _receiveTimestampAlignmentWriteIndex = 0;
 
     static Raw80211Radio*& CallbackInstance() noexcept {
         static Raw80211Radio* instance = nullptr;
@@ -106,6 +115,64 @@ private:
             if (address[i] != 0xFFu) return false;
         }
         return true;
+    }
+
+    uint64_t MapReceiveTimestamp(
+        uint32_t wifiTimestampMicroseconds,
+        uint64_t callbackTimestampNanoseconds
+    ) noexcept {
+        const uint64_t callbackMicroseconds = callbackTimestampNanoseconds / 1000ULL;
+        bool resetAlignmentWindow = false;
+        if (!_hasReceiveTimestampAlignment) {
+            _hasReceiveTimestampAlignment = true;
+            _lastWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
+            _extendedWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
+            resetAlignmentWindow = true;
+        } else {
+            const uint32_t elapsed =
+                wifiTimestampMicroseconds - _lastWiFiReceiveTimestampMicroseconds;
+            _lastWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
+
+            // Consecutive accepted frames make the unsigned subtraction wrap-safe.
+            // A backwards discontinuity larger than half the counter range indicates
+            // a driver timer reset rather than a legitimate interval.
+            if (elapsed > 0x80000000UL) {
+                _extendedWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
+                resetAlignmentWindow = true;
+            } else {
+                _extendedWiFiReceiveTimestampMicroseconds += elapsed;
+            }
+        }
+
+        if (resetAlignmentWindow) {
+            _receiveTimestampAlignmentCount = 0;
+            _receiveTimestampAlignmentWriteIndex = 0;
+        }
+        const int64_t observedCallbackLag =
+            static_cast<int64_t>(callbackMicroseconds) -
+            static_cast<int64_t>(_extendedWiFiReceiveTimestampMicroseconds);
+        _receiveTimestampAlignments[_receiveTimestampAlignmentWriteIndex] = observedCallbackLag;
+        _receiveTimestampAlignmentWriteIndex = static_cast<uint8_t>(
+            (_receiveTimestampAlignmentWriteIndex + 1U) % ReceiveTimestampAlignmentSamples);
+        if (_receiveTimestampAlignmentCount < ReceiveTimestampAlignmentSamples) {
+            ++_receiveTimestampAlignmentCount;
+        }
+        _minimumReceiveCallbackLagMicroseconds = _receiveTimestampAlignments[0];
+        for (uint8_t index = 1; index < _receiveTimestampAlignmentCount; ++index) {
+            if (_receiveTimestampAlignments[index] < _minimumReceiveCallbackLagMicroseconds) {
+                _minimumReceiveCallbackLagMicroseconds = _receiveTimestampAlignments[index];
+            }
+        }
+
+        const int64_t mappedMicroseconds =
+            static_cast<int64_t>(_extendedWiFiReceiveTimestampMicroseconds) +
+            _minimumReceiveCallbackLagMicroseconds;
+        if (mappedMicroseconds <= 0) return 1;
+        if (static_cast<uint64_t>(mappedMicroseconds) >
+            std::numeric_limits<uint64_t>::max() / 1000ULL) {
+            return std::numeric_limits<uint64_t>::max();
+        }
+        return static_cast<uint64_t>(mappedMicroseconds) * 1000ULL;
     }
 
     static void PromiscuousReceive(void* buffer, wifi_promiscuous_pkt_type_t type) {
@@ -143,13 +210,15 @@ private:
         queued.Destination = Radio::RadioAddress::FromBytes(frame + 4, MacBytes);
         queued.Length = payloadLength;
         queued.RssiDbm = packet->rx_ctrl.rssi;
-        // wifi_pkt_rx_ctrl_t::timestamp belongs to a Wi-Fi-local 32-bit timer whose
-        // epoch is not exposed by ESP-IDF. It therefore cannot safely be combined
-        // with esp_timer_get_time()/System::Clock::Monotonic(). Capture the earliest
-        // timestamp available in the driver callback directly in the advertised
-        // monotonic domain instead; consumers can then compare it with T1/T3 without
-        // fabricating an epoch relationship or producing time which precedes TX.
-        queued.TimestampNanoseconds = System::Clock::Monotonic().NowNanoseconds();
+        const uint64_t callbackTimestampNanoseconds =
+            System::Clock::Monotonic().NowNanoseconds();
+        // The driver timestamp has microsecond precision but a private 32-bit epoch.
+        // Extend it across wraps and align it to System monotonic using the minimum
+        // observed callback lag. A callback cannot precede RF reception, so this
+        // removes variable scheduling latency without equating the two timer epochs.
+        queued.TimestampNanoseconds = self->MapReceiveTimestamp(
+            packet->rx_ctrl.timestamp,
+            callbackTimestampNanoseconds);
         if (payloadLength != 0) {
             std::memcpy(queued.Payload.data(), frame + Dot11HeaderBytes + EncapsulationBytes, payloadLength);
         }
@@ -197,6 +266,7 @@ public:
         if (_configuration.Interface == WIFI_IF_AP && mode == WIFI_MODE_STA) return false;
 
         if (!SharedPhyAvailable(true)) return false;
+        if (!SharedWiFiPhy().RequirePrecisionReceiveTimestamps()) return false;
         if (!ResolveLocalAddress()) return false;
 
         bool promiscuous = false;
@@ -213,6 +283,12 @@ public:
         }
         _readIndex.store(0, std::memory_order_relaxed);
         _writeIndex.store(0, std::memory_order_relaxed);
+        _hasReceiveTimestampAlignment = false;
+        _lastWiFiReceiveTimestampMicroseconds = 0;
+        _extendedWiFiReceiveTimestampMicroseconds = 0;
+        _minimumReceiveCallbackLagMicroseconds = 0;
+        _receiveTimestampAlignmentCount = 0;
+        _receiveTimestampAlignmentWriteIndex = 0;
         _started.store(true, std::memory_order_release);
         _observers.NotifyStarted(*this);
         return true;

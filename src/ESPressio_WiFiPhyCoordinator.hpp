@@ -62,6 +62,14 @@ public:
         return esp_wifi_set_ps(powerSave ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE) == ESP_OK;
     }
 
+    /// <summary>
+    /// Disables modem sleep before a provider advertises precision Wi-Fi receive timestamps.
+    /// </summary>
+    bool RequirePrecisionReceiveTimestamps() noexcept {
+        std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
+        return esp_wifi_set_ps(WIFI_PS_NONE) == ESP_OK;
+    }
+
     RawWiFiPhyAccess ResolveRawAccess(uint8_t requestedChannel, bool applyWhenUnconstrained) noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
 
