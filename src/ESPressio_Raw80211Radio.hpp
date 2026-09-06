@@ -55,8 +55,6 @@ private:
     static constexpr std::size_t MaximumFrameBytes = Dot11HeaderBytes + EncapsulationBytes + MaximumPayloadBytes;
     static constexpr uint8_t LlcSnap[8] = {0xAA, 0xAA, 0x03, 0x00, 0x00, 0x00, 0x88, 0xB5};
     static constexpr uint8_t RadioBssid[MacBytes] = {0x02, 0x45, 0x53, 0x50, 0x52, 0x01};
-    static constexpr uint64_t MicrosecondsToNanoseconds = 1000ULL;
-    static constexpr uint64_t WiFiTimestampWrapMicroseconds = (1ULL << 32u);
 
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH > 1, "Raw radio RX queue depth must be at least two");
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH <= 255, "Raw radio RX queue depth must fit its indices");
@@ -107,25 +105,6 @@ private:
         return true;
     }
 
-    static uint64_t RecoverReceiveTimestampNanoseconds(uint32_t receiveTimestampMicroseconds) noexcept {
-        const uint64_t nowNanoseconds = System::Clock::Monotonic().NowNanoseconds();
-        const uint64_t nowMicroseconds = nowNanoseconds / MicrosecondsToNanoseconds;
-        const uint64_t wrapBase = nowMicroseconds & ~(WiFiTimestampWrapMicroseconds - 1ULL);
-        uint64_t receiveMicroseconds = wrapBase | static_cast<uint64_t>(receiveTimestampMicroseconds);
-
-        const uint64_t halfWrap = WiFiTimestampWrapMicroseconds / 2ULL;
-        if (receiveMicroseconds > nowMicroseconds && receiveMicroseconds - nowMicroseconds > halfWrap) {
-            receiveMicroseconds -= WiFiTimestampWrapMicroseconds;
-        } else if (
-            nowMicroseconds > receiveMicroseconds &&
-            nowMicroseconds - receiveMicroseconds > halfWrap
-        ) {
-            receiveMicroseconds += WiFiTimestampWrapMicroseconds;
-        }
-
-        return receiveMicroseconds * MicrosecondsToNanoseconds;
-    }
-
     static void PromiscuousReceive(void* buffer, wifi_promiscuous_pkt_type_t type) {
         auto* self = CallbackInstance();
         if (
@@ -161,7 +140,13 @@ private:
         queued.Destination = Radio::RadioAddress::FromBytes(frame + 4, MacBytes);
         queued.Length = payloadLength;
         queued.RssiDbm = packet->rx_ctrl.rssi;
-        queued.TimestampNanoseconds = RecoverReceiveTimestampNanoseconds(packet->rx_ctrl.timestamp);
+        // wifi_pkt_rx_ctrl_t::timestamp belongs to a Wi-Fi-local 32-bit timer whose
+        // epoch is not exposed by ESP-IDF. It therefore cannot safely be combined
+        // with esp_timer_get_time()/System::Clock::Monotonic(). Capture the earliest
+        // timestamp available in the driver callback directly in the advertised
+        // monotonic domain instead; consumers can then compare it with T1/T3 without
+        // fabricating an epoch relationship or producing time which precedes TX.
+        queued.TimestampNanoseconds = System::Clock::Monotonic().NowNanoseconds();
         if (payloadLength != 0) {
             std::memcpy(queued.Payload.data(), frame + Dot11HeaderBytes + EncapsulationBytes, payloadLength);
         }

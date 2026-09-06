@@ -179,6 +179,12 @@ ESPressio::WiFi::WiFiPlatform wifiPlatform;
 
 `ESPressio_WiFiRadio.hpp` contains RF-level helpers used when native radio policy/fingerprints are required. Its public helper names are likewise contextual (`WiFiRadioFingerprint`, `ReadWiFiRadioFingerprint`, `ApplyWiFiRadioPolicy`) rather than redundantly platform-qualified.
 
+## Raw 802.11 Radio implementation
+
+`ESPressio_Raw80211Radio.hpp` provides the original ESP32 raw Wi-Fi bearer used by ESPressio-Radio and ESPressio-Mesh. Receive callbacks copy accepted frames into bounded storage and capture `System::Clock::Monotonic()` immediately in driver-callback context; `RadioWorker` performs parsing and observer notification later.
+
+The ESP-IDF `wifi_pkt_rx_ctrl_t::timestamp` field is deliberately not converted into a System timestamp. It belongs to a Wi-Fi-local 32-bit timer whose epoch is not exposed, so combining it with `esp_timer_get_time()` by value or wrap position can fabricate timestamps which precede transmission. The callback-captured value is in the exact monotonic domain required by Radio's four-timestamp synchronization exchange. Its latency and jitter must still be characterized on each supported target/load profile before claiming a particular synchronization-accuracy bound.
+
 ## BLE Radio implementation
 
 `ESPressio_BLERadio.hpp` provides `ESPressio::ESP32Platform::BLERadio`, a concrete implementation of the hardware-neutral `ESPressio::Radio::IRadio` contract using the ESP32 integrated Bluetooth Low Energy radio.
