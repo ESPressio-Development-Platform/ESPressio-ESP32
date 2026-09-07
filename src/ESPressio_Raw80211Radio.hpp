@@ -17,12 +17,17 @@
 
 #include <ESPressio_IRadio.hpp>
 #include <ESPressio_Memory.hpp>
+#include <ESPressio_RadioControl.hpp>
 #include <ESPressio_SystemPlatformClock.hpp>
 
 #include "ESPressio_WiFiPhyCoordinator.hpp"
 
 #ifndef ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH
 #define ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH 4
+#endif
+
+#ifndef ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH
+#define ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH 4
 #endif
 
 namespace ESPressio::ESP32Platform {
@@ -46,10 +51,14 @@ struct Raw80211RadioConfiguration {
 
 /// <summary>
 /// ESPressio Radio concrete implemented with ESP32 raw non-QoS IEEE 802.11 data frames.
-/// Driver callbacks only copy accepted frames into bounded provider-owned storage and wake RadioWorker; parsing/routing
-/// onward happens outside the Espressif Wi-Fi callback context.
 /// </summary>
-class Raw80211Radio final : public Radio::IRadio {
+/// <remarks>
+/// Driver callbacks only validate/copy accepted frames, map the provider RX timestamp, ask an injected generic ingress
+/// classifier for Standard vs Control urgency, and wake the corresponding worker. The concrete never understands clock
+/// synchronization or another Radio control protocol. Control and standard packets occupy independent bounded queues so
+/// ordinary transfer backlog cannot delay a time-critical control packet before worker scheduling.
+/// </remarks>
+class Raw80211Radio final : public Radio::IRadio, public Radio::IRadioPrioritizedIngress {
 private:
     static constexpr std::size_t MacBytes = 6;
     static constexpr std::size_t Dot11HeaderBytes = 24;
@@ -61,8 +70,14 @@ private:
     static constexpr uint8_t RadioBssid[MacBytes] = {0x02, 0x45, 0x53, 0x50, 0x52, 0x01};
     static constexpr std::size_t ReceiveTimestampAlignmentSamples = 32;
 
-    static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH > 1, "Raw radio RX queue depth must be at least two");
-    static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH <= 255, "Raw radio RX queue depth must fit its indices");
+    static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH > 1,
+                  "Raw radio RX queue depth must be at least two");
+    static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH <= 255,
+                  "Raw radio RX queue depth must fit its indices");
+    static_assert(ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH > 1,
+                  "Raw radio control RX queue depth must be at least two");
+    static_assert(ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH <= 255,
+                  "Raw radio control RX queue depth must fit its indices");
 
     struct ReceivedPacket {
         Radio::RadioAddress Source{};
@@ -80,12 +95,27 @@ private:
 
     Raw80211RadioConfiguration _configuration{};
     Radio::IRadioReceiver* _receiver = nullptr;
+    Radio::IRadioReceiver* _controlReceiver = nullptr;
     std::atomic<Radio::IRadioWorkSignal*> _workSignal{nullptr};
+    std::atomic<Radio::IRadioWorkSignal*> _controlWorkSignal{nullptr};
+    std::atomic<Radio::IRadioIngressClassifier*> _ingressClassifier{nullptr};
     Radio::RadioObserverSubscriptions _observers{};
     Radio::RadioAddress _localAddress{};
+
     ReceiveQueue _receiveQueue{};
+    ReceiveQueue _controlReceiveQueue{};
     std::atomic<uint8_t> _writeIndex{0};
     std::atomic<uint8_t> _readIndex{0};
+    std::atomic<uint8_t> _controlWriteIndex{0};
+    std::atomic<uint8_t> _controlReadIndex{0};
+
+    std::atomic<std::uint64_t> _standardAcceptedPackets{0U};
+    std::atomic<std::uint64_t> _standardDroppedPackets{0U};
+    std::atomic<std::uint32_t> _standardHighWatermark{0U};
+    std::atomic<std::uint64_t> _controlAcceptedPackets{0U};
+    std::atomic<std::uint64_t> _controlDroppedPackets{0U};
+    std::atomic<std::uint32_t> _controlHighWatermark{0U};
+
     std::atomic<bool> _started{false};
     bool _promiscuousWasEnabled = false;
     bool _hasReceiveTimestampAlignment = false;
@@ -117,6 +147,96 @@ private:
         return true;
     }
 
+    static std::uint32_t QueueDepth(
+        std::uint8_t read,
+        std::uint8_t write,
+        std::size_t size
+    ) noexcept {
+        if (size == 0U) return 0U;
+        return write >= read
+            ? static_cast<std::uint32_t>(write - read)
+            : static_cast<std::uint32_t>(size - static_cast<std::size_t>(read - write));
+    }
+
+    static void UpdateHighWatermark(
+        std::atomic<std::uint32_t>& target,
+        std::uint32_t depth
+    ) noexcept {
+        auto current = target.load(std::memory_order_relaxed);
+        while (depth > current &&
+               !target.compare_exchange_weak(
+                   current, depth, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+    }
+
+    bool Enqueue(
+        ReceiveQueue& queue,
+        std::atomic<std::uint8_t>& writeIndex,
+        std::atomic<std::uint8_t>& readIndex,
+        std::atomic<std::uint64_t>& acceptedPackets,
+        std::atomic<std::uint64_t>& droppedPackets,
+        std::atomic<std::uint32_t>& highWatermark,
+        const std::uint8_t* frame,
+        std::uint16_t payloadLength,
+        std::int16_t rssiDbm,
+        std::uint64_t timestampNanoseconds
+    ) noexcept {
+        if (queue.empty()) {
+            droppedPackets.fetch_add(1U, std::memory_order_relaxed);
+            return false;
+        }
+        const auto write = writeIndex.load(std::memory_order_relaxed);
+        const auto next = static_cast<std::uint8_t>((write + 1U) % queue.size());
+        const auto read = readIndex.load(std::memory_order_acquire);
+        if (next == read) {
+            droppedPackets.fetch_add(1U, std::memory_order_relaxed);
+            return false;
+        }
+
+        auto& queued = queue[write];
+        queued.Source = Radio::RadioAddress::FromBytes(frame + 10, MacBytes);
+        queued.Destination = Radio::RadioAddress::FromBytes(frame + 4, MacBytes);
+        queued.Length = payloadLength;
+        queued.RssiDbm = rssiDbm;
+        queued.TimestampNanoseconds = timestampNanoseconds;
+        if (payloadLength != 0U) {
+            std::memcpy(
+                queued.Payload.data(),
+                frame + Dot11HeaderBytes + EncapsulationBytes,
+                payloadLength);
+        }
+        writeIndex.store(next, std::memory_order_release);
+        acceptedPackets.fetch_add(1U, std::memory_order_relaxed);
+        UpdateHighWatermark(highWatermark, QueueDepth(read, next, queue.size()));
+        return true;
+    }
+
+    void DrainQueue(
+        ReceiveQueue& queue,
+        std::atomic<std::uint8_t>& readIndex,
+        std::atomic<std::uint8_t>& writeIndex,
+        Radio::IRadioReceiver* receiver
+    ) {
+        while (true) {
+            const auto read = readIndex.load(std::memory_order_relaxed);
+            if (read == writeIndex.load(std::memory_order_acquire)) return;
+            const auto& queued = queue[read];
+            Radio::RadioPacketView view;
+            view.Source = queued.Source;
+            view.Destination = queued.Destination;
+            view.Payload = queued.Length == 0U ? nullptr : queued.Payload.data();
+            view.PayloadSize = queued.Length;
+            view.RssiDbm = queued.RssiDbm;
+            view.ReceiveTimestampNanoseconds = queued.TimestampNanoseconds;
+            view.Flags = queued.Destination.IsBroadcast()
+                ? Radio::RadioPacketFlag::Broadcast
+                : Radio::RadioPacketFlag::None;
+            if (receiver != nullptr) receiver->OnRadioPacket(*this, view);
+            readIndex.store(
+                static_cast<std::uint8_t>((read + 1U) % queue.size()),
+                std::memory_order_release);
+        }
+    }
+
     uint64_t MapReceiveTimestamp(
         uint32_t wifiTimestampMicroseconds,
         uint64_t callbackTimestampNanoseconds
@@ -129,13 +249,8 @@ private:
             _extendedWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
             resetAlignmentWindow = true;
         } else {
-            const uint32_t elapsed =
-                wifiTimestampMicroseconds - _lastWiFiReceiveTimestampMicroseconds;
+            const uint32_t elapsed = wifiTimestampMicroseconds - _lastWiFiReceiveTimestampMicroseconds;
             _lastWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
-
-            // Consecutive accepted frames make the unsigned subtraction wrap-safe.
-            // A backwards discontinuity larger than half the counter range indicates
-            // a driver timer reset rather than a legitimate interval.
             if (elapsed > 0x80000000UL) {
                 _extendedWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
                 resetAlignmentWindow = true;
@@ -167,7 +282,7 @@ private:
         const int64_t mappedMicroseconds =
             static_cast<int64_t>(_extendedWiFiReceiveTimestampMicroseconds) +
             _minimumReceiveCallbackLagMicroseconds;
-        if (mappedMicroseconds <= 0) return 1;
+        if (mappedMicroseconds <= 0) return 1U;
         if (static_cast<uint64_t>(mappedMicroseconds) >
             std::numeric_limits<uint64_t>::max() / 1000ULL) {
             return std::numeric_limits<uint64_t>::max();
@@ -177,13 +292,9 @@ private:
 
     static void PromiscuousReceive(void* buffer, wifi_promiscuous_pkt_type_t type) {
         auto* self = CallbackInstance();
-        if (
-            self == nullptr ||
+        if (self == nullptr ||
             !self->_started.load(std::memory_order_acquire) ||
-            type != WIFI_PKT_DATA ||
-            buffer == nullptr ||
-            self->_receiveQueue.empty()
-        ) return;
+            type != WIFI_PKT_DATA || buffer == nullptr) return;
 
         const auto* packet = static_cast<const wifi_promiscuous_pkt_t*>(buffer);
         const uint8_t* frame = packet->payload;
@@ -191,41 +302,59 @@ private:
         if (!IsOurFrame(frame, frameLength)) return;
 
         const uint8_t* destinationMac = frame + 4;
-        if (
-            std::memcmp(destinationMac, self->_localAddress.Bytes.data(), MacBytes) != 0 &&
-            !IsBroadcastMac(destinationMac)
-        ) return;
+        if (std::memcmp(destinationMac, self->_localAddress.Bytes.data(), MacBytes) != 0 &&
+            !IsBroadcastMac(destinationMac)) return;
 
         const std::size_t lengthOffset = Dot11HeaderBytes + sizeof(LlcSnap);
         const uint16_t payloadLength = static_cast<uint16_t>(frame[lengthOffset]) |
             (static_cast<uint16_t>(frame[lengthOffset + 1]) << 8u);
-        if (payloadLength > MaximumPayloadBytes || Dot11HeaderBytes + EncapsulationBytes + payloadLength > frameLength) return;
+        if (payloadLength > MaximumPayloadBytes ||
+            Dot11HeaderBytes + EncapsulationBytes + payloadLength > frameLength) return;
 
-        const uint8_t write = self->_writeIndex.load(std::memory_order_relaxed);
-        const uint8_t next = static_cast<uint8_t>((write + 1u) % self->_receiveQueue.size());
-        if (next == self->_readIndex.load(std::memory_order_acquire)) return;
+        const auto* payload = frame + Dot11HeaderBytes + EncapsulationBytes;
+        auto ingressClass = Radio::RadioIngressClass::Standard;
+        if (auto* classifier = self->_ingressClassifier.load(std::memory_order_acquire)) {
+            ingressClass = classifier->ClassifyInbound(*self, payload, payloadLength);
+        }
 
-        auto& queued = self->_receiveQueue[write];
-        queued.Source = Radio::RadioAddress::FromBytes(frame + 10, MacBytes);
-        queued.Destination = Radio::RadioAddress::FromBytes(frame + 4, MacBytes);
-        queued.Length = payloadLength;
-        queued.RssiDbm = packet->rx_ctrl.rssi;
         const uint64_t callbackTimestampNanoseconds =
             System::Clock::Monotonic().NowNanoseconds();
-        // The driver timestamp has microsecond precision but a private 32-bit epoch.
-        // Extend it across wraps and align it to System monotonic using the minimum
-        // observed callback lag. A callback cannot precede RF reception, so this
-        // removes variable scheduling latency without equating the two timer epochs.
-        queued.TimestampNanoseconds = self->MapReceiveTimestamp(
+        const auto receiveTimestampNanoseconds = self->MapReceiveTimestamp(
             packet->rx_ctrl.timestamp,
             callbackTimestampNanoseconds);
-        if (payloadLength != 0) {
-            std::memcpy(queued.Payload.data(), frame + Dot11HeaderBytes + EncapsulationBytes, payloadLength);
-        }
-        self->_writeIndex.store(next, std::memory_order_release);
 
-        Radio::IRadioWorkSignal* signal = self->_workSignal.load(std::memory_order_acquire);
-        if (signal != nullptr) signal->OnRadioWorkAvailable(*self);
+        if (ingressClass == Radio::RadioIngressClass::Control) {
+            if (!self->Enqueue(
+                    self->_controlReceiveQueue,
+                    self->_controlWriteIndex,
+                    self->_controlReadIndex,
+                    self->_controlAcceptedPackets,
+                    self->_controlDroppedPackets,
+                    self->_controlHighWatermark,
+                    frame,
+                    payloadLength,
+                    packet->rx_ctrl.rssi,
+                    receiveTimestampNanoseconds)) return;
+            if (auto* signal = self->_controlWorkSignal.load(std::memory_order_acquire)) {
+                signal->OnRadioWorkAvailable(*self);
+            }
+            return;
+        }
+
+        if (!self->Enqueue(
+                self->_receiveQueue,
+                self->_writeIndex,
+                self->_readIndex,
+                self->_standardAcceptedPackets,
+                self->_standardDroppedPackets,
+                self->_standardHighWatermark,
+                frame,
+                payloadLength,
+                packet->rx_ctrl.rssi,
+                receiveTimestampNanoseconds)) return;
+        if (auto* signal = self->_workSignal.load(std::memory_order_acquire)) {
+            signal->OnRadioWorkAvailable(*self);
+        }
     }
 
     bool ResolveLocalAddress() noexcept {
@@ -250,6 +379,9 @@ public:
         try {
             if (_receiveQueue.size() != ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH) {
                 _receiveQueue.resize(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH);
+            }
+            if (_controlReceiveQueue.size() != ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH) {
+                _controlReceiveQueue.resize(ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH);
             }
         } catch (...) {
             return false;
@@ -281,8 +413,10 @@ public:
             CallbackInstance() = nullptr;
             return false;
         }
-        _readIndex.store(0, std::memory_order_relaxed);
-        _writeIndex.store(0, std::memory_order_relaxed);
+        _readIndex.store(0U, std::memory_order_relaxed);
+        _writeIndex.store(0U, std::memory_order_relaxed);
+        _controlReadIndex.store(0U, std::memory_order_relaxed);
+        _controlWriteIndex.store(0U, std::memory_order_relaxed);
         _hasReceiveTimestampAlignment = false;
         _lastWiFiReceiveTimestampMicroseconds = 0;
         _extendedWiFiReceiveTimestampMicroseconds = 0;
@@ -301,8 +435,10 @@ public:
             if (!_promiscuousWasEnabled) (void)esp_wifi_set_promiscuous(false);
             CallbackInstance() = nullptr;
         }
-        _readIndex.store(0, std::memory_order_relaxed);
-        _writeIndex.store(0, std::memory_order_relaxed);
+        _readIndex.store(0U, std::memory_order_relaxed);
+        _writeIndex.store(0U, std::memory_order_relaxed);
+        _controlReadIndex.store(0U, std::memory_order_relaxed);
+        _controlWriteIndex.store(0U, std::memory_order_relaxed);
         _observers.NotifyStopped(*this);
     }
 
@@ -337,7 +473,8 @@ public:
         };
         if (!IsStarted()) return complete({Radio::RadioSendStatus::NotStarted, 0});
         if (!SharedPhyAvailable(false)) return complete({Radio::RadioSendStatus::Busy, 0});
-        if (!destination.IsValid() || destination.Length != MacBytes) return complete({Radio::RadioSendStatus::InvalidAddress, 0});
+        if (!destination.IsValid() || destination.Length != MacBytes)
+            return complete({Radio::RadioSendStatus::InvalidAddress, 0});
         if ((payload == nullptr && payloadSize != 0) || payloadSize > MaximumPayloadBytes)
             return complete({Radio::RadioSendStatus::PayloadTooLarge, 0});
 
@@ -351,17 +488,19 @@ public:
         const std::size_t lengthOffset = Dot11HeaderBytes + sizeof(LlcSnap);
         frame[lengthOffset] = static_cast<uint8_t>(payloadSize & 0xFFu);
         frame[lengthOffset + 1] = static_cast<uint8_t>((payloadSize >> 8u) & 0xFFu);
-        if (payloadSize != 0) std::memcpy(frame.data() + Dot11HeaderBytes + EncapsulationBytes, payload, payloadSize);
+        if (payloadSize != 0) {
+            std::memcpy(frame.data() + Dot11HeaderBytes + EncapsulationBytes, payload, payloadSize);
+        }
 
         const esp_err_t result = esp_wifi_80211_tx(
             _configuration.Interface,
             frame.data(),
             static_cast<int>(Dot11HeaderBytes + EncapsulationBytes + payloadSize),
-            true
-        );
+            true);
         if (result == ESP_OK) return complete(Radio::RadioSendResult::Accepted());
 #ifdef ESP_ERR_NO_MEM
-        if (result == ESP_ERR_NO_MEM) return complete({Radio::RadioSendStatus::NoMemory, static_cast<int32_t>(result)});
+        if (result == ESP_ERR_NO_MEM)
+            return complete({Radio::RadioSendStatus::NoMemory, static_cast<int32_t>(result)});
 #endif
         return complete({Radio::RadioSendStatus::NativeFailure, static_cast<int32_t>(result)});
     }
@@ -372,27 +511,60 @@ public:
     }
     Radio::RadioObserverSubscriptions& Observers() noexcept override { return _observers; }
 
+    void SetIngressClassifier(Radio::IRadioIngressClassifier* classifier) noexcept override {
+        _ingressClassifier.store(classifier, std::memory_order_release);
+    }
+    void SetControlReceiver(Radio::IRadioReceiver* receiver) noexcept override {
+        _controlReceiver = receiver;
+    }
+    void SetControlWorkSignal(Radio::IRadioWorkSignal* signal) noexcept override {
+        _controlWorkSignal.store(signal, std::memory_order_release);
+    }
+
     void DrainInbound() override {
         if (!SharedPhyAvailable(false)) {
             _readIndex.store(_writeIndex.load(std::memory_order_acquire), std::memory_order_release);
             return;
         }
+        DrainQueue(_receiveQueue, _readIndex, _writeIndex, _receiver);
+    }
 
-        while (true) {
-            const uint8_t read = _readIndex.load(std::memory_order_relaxed);
-            if (read == _writeIndex.load(std::memory_order_acquire)) return;
-            const auto& queued = _receiveQueue[read];
-            Radio::RadioPacketView view;
-            view.Source = queued.Source;
-            view.Destination = queued.Destination;
-            view.Payload = queued.Length == 0 ? nullptr : queued.Payload.data();
-            view.PayloadSize = queued.Length;
-            view.RssiDbm = queued.RssiDbm;
-            view.ReceiveTimestampNanoseconds = queued.TimestampNanoseconds;
-            view.Flags = queued.Destination.IsBroadcast() ? Radio::RadioPacketFlag::Broadcast : Radio::RadioPacketFlag::None;
-            if (_receiver != nullptr) _receiver->OnRadioPacket(*this, view);
-            _readIndex.store(static_cast<uint8_t>((read + 1u) % _receiveQueue.size()), std::memory_order_release);
+    void DrainControlInbound() override {
+        if (!SharedPhyAvailable(false)) {
+            _controlReadIndex.store(
+                _controlWriteIndex.load(std::memory_order_acquire),
+                std::memory_order_release);
+            return;
         }
+        DrainQueue(
+            _controlReceiveQueue,
+            _controlReadIndex,
+            _controlWriteIndex,
+            _controlReceiver);
+    }
+
+    Radio::RadioIngressQueueStatistics StandardIngressStatistics() const noexcept override {
+        const auto read = _readIndex.load(std::memory_order_acquire);
+        const auto write = _writeIndex.load(std::memory_order_acquire);
+        return {
+            _standardAcceptedPackets.load(std::memory_order_relaxed),
+            _standardDroppedPackets.load(std::memory_order_relaxed),
+            QueueDepth(read, write, _receiveQueue.size()),
+            _standardHighWatermark.load(std::memory_order_relaxed),
+            _receiveQueue.empty() ? 0U : static_cast<std::uint32_t>(_receiveQueue.size() - 1U)
+        };
+    }
+
+    Radio::RadioIngressQueueStatistics ControlIngressStatistics() const noexcept override {
+        const auto read = _controlReadIndex.load(std::memory_order_acquire);
+        const auto write = _controlWriteIndex.load(std::memory_order_acquire);
+        return {
+            _controlAcceptedPackets.load(std::memory_order_relaxed),
+            _controlDroppedPackets.load(std::memory_order_relaxed),
+            QueueDepth(read, write, _controlReceiveQueue.size()),
+            _controlHighWatermark.load(std::memory_order_relaxed),
+            _controlReceiveQueue.empty() ? 0U : static_cast<std::uint32_t>(_controlReceiveQueue.size() - 1U)
+        };
     }
 };
 
