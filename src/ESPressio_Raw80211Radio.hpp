@@ -80,6 +80,8 @@ private:
                   "Raw radio control RX queue depth must fit its indices");
     static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
                   "Raw80211 callback counters require lock-free 32-bit atomics");
+    static_assert(std::atomic<Raw80211Radio*>::is_always_lock_free,
+                  "Raw80211 callback ownership requires lock-free pointer atomics");
 
     struct ReceivedPacket {
         Radio::RadioAddress Source{};
@@ -130,8 +132,8 @@ private:
     uint8_t _receiveTimestampAlignmentCount = 0;
     uint8_t _receiveTimestampAlignmentWriteIndex = 0;
 
-    static Raw80211Radio*& CallbackInstance() noexcept {
-        static Raw80211Radio* instance = nullptr;
+    static std::atomic<Raw80211Radio*>& CallbackInstance() noexcept {
+        static std::atomic<Raw80211Radio*> instance{nullptr};
         return instance;
     }
 
@@ -295,7 +297,7 @@ private:
     }
 
     static void PromiscuousReceive(void* buffer, wifi_promiscuous_pkt_type_t type) {
-        auto* self = CallbackInstance();
+        auto* self = CallbackInstance().load(std::memory_order_acquire);
         if (self == nullptr ||
             !self->_started.load(std::memory_order_acquire) ||
             type != WIFI_PKT_DATA || buffer == nullptr) return;
@@ -378,7 +380,7 @@ public:
 
     bool Start() override {
         if (_started.load(std::memory_order_acquire)) return true;
-        if (CallbackInstance() != nullptr && CallbackInstance() != this) return false;
+        if (CallbackInstance().load(std::memory_order_acquire) != nullptr) return false;
 
         try {
             if (_receiveQueue.size() != ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH) {
@@ -405,16 +407,25 @@ public:
         if (!SharedWiFiPhy().RequirePrecisionReceiveTimestamps()) return false;
         if (!ResolveLocalAddress()) return false;
 
+        Raw80211Radio* expectedOwner = nullptr;
+        if (!CallbackInstance().compare_exchange_strong(
+                expectedOwner, this, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            return false;
+        }
+
         bool promiscuous = false;
         if (esp_wifi_get_promiscuous(&promiscuous) == ESP_OK) _promiscuousWasEnabled = promiscuous;
-        CallbackInstance() = this;
         if (esp_wifi_set_promiscuous_rx_cb(&Raw80211Radio::PromiscuousReceive) != ESP_OK) {
-            CallbackInstance() = nullptr;
+            expectedOwner = this;
+            (void)CallbackInstance().compare_exchange_strong(
+                expectedOwner, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
             return false;
         }
         if (esp_wifi_set_promiscuous(true) != ESP_OK) {
             (void)esp_wifi_set_promiscuous_rx_cb(nullptr);
-            CallbackInstance() = nullptr;
+            expectedOwner = this;
+            (void)CallbackInstance().compare_exchange_strong(
+                expectedOwner, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
             return false;
         }
         _readIndex.store(0U, std::memory_order_relaxed);
@@ -434,10 +445,12 @@ public:
 
     void Stop() noexcept override {
         if (!_started.exchange(false, std::memory_order_acq_rel)) return;
-        if (CallbackInstance() == this) {
+        if (CallbackInstance().load(std::memory_order_acquire) == this) {
             (void)esp_wifi_set_promiscuous_rx_cb(nullptr);
             if (!_promiscuousWasEnabled) (void)esp_wifi_set_promiscuous(false);
-            CallbackInstance() = nullptr;
+            Raw80211Radio* expectedOwner = this;
+            (void)CallbackInstance().compare_exchange_strong(
+                expectedOwner, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
         }
         _readIndex.store(0U, std::memory_order_relaxed);
         _writeIndex.store(0U, std::memory_order_relaxed);
