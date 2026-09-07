@@ -39,24 +39,19 @@ struct RawWiFiPhyAccess {
 /// once at start and subsequently reads an atomic cached access snapshot on packet hot paths.
 ///
 /// Native driver queries and channel/power-policy writes are therefore lifecycle work, never recurring Radio-worker
-/// polling. In particular, DrainInbound/DrainControlInbound and Send must not call esp_wifi_get_channel(). This prevents
-/// a high-priority precision worker from repeatedly contending with the same Wi-Fi driver task that delivers its RX
-/// timestamp callback.
+/// polling. In particular, ingress service and Send must not call esp_wifi_get_channel(). This prevents a high-priority
+/// precision worker from repeatedly contending with the same Wi-Fi driver task that delivers its RX timestamp callback.
 /// </remarks>
 class WiFiPhyCoordinator final {
 public:
     WiFiPhyCoordinator(const WiFiPhyCoordinator&) = delete;
     WiFiPhyCoordinator& operator=(const WiFiPhyCoordinator&) = delete;
 
-    /// <summary>Publishes whether ordinary ESPressio Wi-Fi currently owns association/AP/scanning PHY behaviour.</summary>
     void SetWiFiServiceActive(bool active) noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         if (_wifiServiceActive == active) return;
         _wifiServiceActive = active;
-        if (_rawRegistered) {
-            // This is a lifecycle transition, so one native channel query/application is acceptable here.
-            (void)RefreshRawAccessLocked(!active);
-        }
+        if (_rawRegistered) (void)RefreshRawAccessLocked(!active);
     }
 
     bool WiFiServiceActive() const noexcept {
@@ -64,10 +59,7 @@ public:
         return _wifiServiceActive;
     }
 
-    /// <summary>
-    /// Publishes an effective ordinary-Wi-Fi channel already learned by WiFiPlatform during normal state refresh.
-    /// No native driver query is performed here.
-    /// </summary>
+    /// <summary>Publishes an effective channel already learned by WiFiPlatform; no driver query occurs.</summary>
     void NotifyWiFiEffectiveChannel(uint8_t channel) noexcept {
         if (channel == 0U) return;
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
@@ -85,24 +77,18 @@ public:
         if (txPowerDbm < 2) txPowerDbm = 2;
         if (txPowerDbm > 20) txPowerDbm = 20;
         if (esp_wifi_set_max_tx_power(static_cast<int8_t>(txPowerDbm * 4)) != ESP_OK) return false;
-        // A registered precision Raw80211 consumer owns the stronger no-modem-sleep requirement.
         const bool effectivePowerSave = powerSave && !_precisionReceiveTimestampsRequired;
         return esp_wifi_set_ps(effectivePowerSave ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE) == ESP_OK;
     }
 
-    /// <summary>
-    /// Disables modem sleep while any registered provider advertises precision Wi-Fi receive timestamps.
-    /// This is lifecycle work and must not be called per packet/worker iteration.
-    /// </summary>
+    /// <summary>Compatibility lifecycle operation; never call this from a packet/worker cadence.</summary>
     bool RequirePrecisionReceiveTimestamps() noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         _precisionReceiveTimestampsRequired = true;
         return esp_wifi_set_ps(WIFI_PS_NONE) == ESP_OK;
     }
 
-    /// <summary>
-    /// Registers one Raw80211 provider and resolves/applies its initial channel policy exactly once for this lifecycle.
-    /// </summary>
+    /// <summary>Registers one Raw80211 lifecycle and resolves/applies its initial PHY policy once.</summary>
     RawWiFiPhyAccess RegisterRawAccess(
         uint8_t requestedChannel,
         bool requirePrecisionReceiveTimestamps = true
@@ -112,26 +98,24 @@ public:
             PublishRawAccessLocked(RawWiFiPhyAccessStatus::WiFiServiceConflict, _lastKnownChannel);
             return CachedRawAccess();
         }
+
         _rawRegistered = true;
         _rawRequestedChannel = requestedChannel;
-        if (requirePrecisionReceiveTimestamps) {
-            _precisionReceiveTimestampsRequired = true;
-            if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) {
-                PublishRawAccessLocked(RawWiFiPhyAccessStatus::DriverUnavailable, _lastKnownChannel);
-                return CachedRawAccess();
-            }
+        _precisionReceiveTimestampsRequired = requirePrecisionReceiveTimestamps;
+
+        if (requirePrecisionReceiveTimestamps && esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) {
+            RollbackRawRegistrationLocked();
+            return CachedRawAccess();
         }
-        (void)RefreshRawAccessLocked(!_wifiServiceActive);
-        return CachedRawAccess();
+
+        const auto access = RefreshRawAccessLocked(!_wifiServiceActive);
+        if (!access) RollbackRawRegistrationLocked();
+        return access;
     }
 
-    /// <summary>Releases the Raw80211 lifecycle registration and invalidates the hot-path cached access snapshot.</summary>
     void ReleaseRawAccess() noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
-        _rawRegistered = false;
-        _rawRequestedChannel = 0U;
-        _precisionReceiveTimestampsRequired = false;
-        PublishRawAccessLocked(RawWiFiPhyAccessStatus::DriverUnavailable, _lastKnownChannel);
+        RollbackRawRegistrationLocked();
     }
 
     /// <summary>Returns the lock-free cached Raw80211 PHY access snapshot. No ESP-IDF call occurs.</summary>
@@ -140,8 +124,7 @@ public:
     }
 
     /// <summary>
-    /// Compatibility resolver. applyWhenUnconstrained=true is treated as an explicit lifecycle refresh; false returns
-    /// cached state only and never interrogates the driver.
+    /// Compatibility resolver. applyWhenUnconstrained=true is an explicit lifecycle refresh; false is cached-only.
     /// </summary>
     RawWiFiPhyAccess ResolveRawAccess(uint8_t requestedChannel, bool applyWhenUnconstrained) noexcept {
         if (!applyWhenUnconstrained) {
@@ -153,16 +136,16 @@ public:
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         _rawRegistered = true;
         _rawRequestedChannel = requestedChannel;
-        (void)RefreshRawAccessLocked(!_wifiServiceActive);
-        return CachedRawAccess();
+        const auto access = RefreshRawAccessLocked(!_wifiServiceActive);
+        if (!access) RollbackRawRegistrationLocked();
+        return access;
     }
 
 private:
     WiFiPhyCoordinator() = default;
 
     static constexpr std::uint32_t Encode(RawWiFiPhyAccessStatus status, uint8_t channel) noexcept {
-        return (static_cast<std::uint32_t>(status) << 8U) |
-               static_cast<std::uint32_t>(channel);
+        return (static_cast<std::uint32_t>(status) << 8U) | static_cast<std::uint32_t>(channel);
     }
 
     static constexpr RawWiFiPhyAccess Decode(std::uint32_t encoded) noexcept {
@@ -174,6 +157,13 @@ private:
 
     void PublishRawAccessLocked(RawWiFiPhyAccessStatus status, uint8_t channel) noexcept {
         _cachedRawAccess.store(Encode(status, channel), std::memory_order_release);
+    }
+
+    void RollbackRawRegistrationLocked() noexcept {
+        _rawRegistered = false;
+        _rawRequestedChannel = 0U;
+        _precisionReceiveTimestampsRequired = false;
+        PublishRawAccessLocked(RawWiFiPhyAccessStatus::DriverUnavailable, _lastKnownChannel);
     }
 
     RawWiFiPhyAccess RefreshRawAccessLocked(bool applyWhenUnconstrained) noexcept {
