@@ -390,7 +390,9 @@ private:
                 ap.Hidden,
                 ap.MaximumClients
             )) return false;
-        return ConfigureDHCPServer(ap.DHCP);
+        if (!ConfigureDHCPServer(ap.DHCP)) return false;
+        ESP32Platform::SharedWiFiPhy().NotifyWiFiEffectiveChannel(ap.Channel);
+        return true;
     }
 
     static bool ConfigureDHCPServer(const DHCPServerConfiguration& configuration) {
@@ -551,6 +553,9 @@ private:
             next.Client.Channel = status == WL_CONNECTED
                 ? static_cast<uint8_t>(::WiFi.channel())
                 : 0;
+            if (next.Client.Channel != 0U) {
+                ESP32Platform::SharedWiFiPhy().NotifyWiFiEffectiveChannel(next.Client.Channel);
+            }
             next.Client.Network.Address = Convert(::WiFi.localIP());
             next.Client.Network.Gateway = Convert(::WiFi.gatewayIP());
             next.Client.Network.SubnetMask = Convert(::WiFi.subnetMask());
@@ -569,6 +574,7 @@ private:
                 next.AccessPoint.State = AccessPointState::Active;
                 next.AccessPoint.SSID = _configuration.AccessPoint.SSID;
                 next.AccessPoint.Channel = _configuration.AccessPoint.Channel;
+                ESP32Platform::SharedWiFiPhy().NotifyWiFiEffectiveChannel(next.AccessPoint.Channel);
                 next.AccessPoint.Network = _configuration.AccessPoint.Network;
                 next.AccessPoint.Network.Address = Convert(apIP);
                 next.AccessPoint.ConnectedStations =
