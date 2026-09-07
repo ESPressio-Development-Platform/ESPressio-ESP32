@@ -21,6 +21,7 @@
 #include "ESPressio_WiFiPlatform.hpp"
 #include "ESPressio_WiFiRadio.hpp"
 #if __has_include(<ESPressio_IRadio.hpp>)
+#include "ESPressio_Raw80211WiFiBootstrap.hpp"
 #include "ESPressio_Raw80211Radio.hpp"
 #include "ESPressio_BLERadio.hpp"
 #endif
