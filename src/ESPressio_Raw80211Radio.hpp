@@ -53,10 +53,11 @@ struct Raw80211RadioConfiguration {
 /// ESPressio Radio concrete implemented with ESP32 raw non-QoS IEEE 802.11 data frames.
 /// </summary>
 /// <remarks>
-/// Driver callbacks only validate/copy accepted frames, map the provider RX timestamp, ask an injected generic ingress
-/// classifier for Standard vs Control urgency, and wake the corresponding worker. The concrete never understands clock
-/// synchronization or another Radio control protocol. Control and standard packets occupy independent bounded queues so
-/// ordinary transfer backlog cannot delay a time-critical control packet before worker scheduling.
+/// The ESP-IDF Wi-Fi driver-task callback only validates/copies accepted frames, maps the provider RX timestamp, asks an
+/// injected generic ingress classifier for Standard vs Control urgency, and wakes the corresponding worker. The concrete
+/// never understands clock synchronization or another Radio control protocol. Control and standard packets occupy
+/// independent bounded queues so ordinary transfer backlog cannot delay a time-critical control packet before worker
+/// scheduling.
 /// </remarks>
 class Raw80211Radio final : public Radio::IRadio, public Radio::IRadioPrioritizedIngress {
 private:
@@ -78,10 +79,6 @@ private:
                   "Raw radio control RX queue depth must be at least two");
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH <= 255,
                   "Raw radio control RX queue depth must fit its indices");
-    static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
-                  "Raw80211 callback counters require lock-free 32-bit atomics");
-    static_assert(std::atomic<Raw80211Radio*>::is_always_lock_free,
-                  "Raw80211 callback ownership requires lock-free pointer atomics");
 
     struct ReceivedPacket {
         Radio::RadioAddress Source{};
@@ -113,8 +110,8 @@ private:
     std::atomic<uint8_t> _controlWriteIndex{0};
     std::atomic<uint8_t> _controlReadIndex{0};
 
-    // These counters are mutated from the ESP-IDF receive callback. Keep them 32-bit and require lock-free atomics on
-    // this target; the public statistics snapshot widens them to its diagnostic-width fields.
+    // These diagnostics are mutated from the ESP-IDF Wi-Fi driver task. Keep them 32-bit to avoid unnecessary wider
+    // atomic operations on the 32-bit target; the public statistics snapshot widens them to its diagnostic-width fields.
     std::atomic<std::uint32_t> _standardAcceptedPackets{0U};
     std::atomic<std::uint32_t> _standardDroppedPackets{0U};
     std::atomic<std::uint32_t> _standardHighWatermark{0U};
