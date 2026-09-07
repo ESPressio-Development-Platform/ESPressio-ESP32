@@ -4,12 +4,14 @@
 #error "ESPressio_Raw80211Radio.hpp requires an ESP32 Arduino target"
 #endif
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <mutex>
 
 #include <WiFi.h>
 #include <esp_err.h>
@@ -18,6 +20,7 @@
 #include <ESPressio_IRadio.hpp>
 #include <ESPressio_Memory.hpp>
 #include <ESPressio_RadioControl.hpp>
+#include <ESPressio_Synchronization.hpp>
 #include <ESPressio_SystemPlatformClock.hpp>
 
 #include "ESPressio_WiFiPhyCoordinator.hpp"
@@ -49,6 +52,21 @@ struct Raw80211RadioConfiguration {
     bool InitializeStationModeWhenNeeded = true;
 };
 
+/// <summary>Diagnostic evidence for the most recently worker-serviced Raw80211 receive timestamp.</summary>
+struct Raw80211ReceiveTimestampStatistics final {
+    std::uint64_t SampleNumber{0U};
+    std::uint32_t AlignmentResetCount{0U};
+    std::uint32_t AlignmentSampleCount{0U};
+    bool AlignmentFrozen{false};
+    bool AlignmentResetOnThisSample{false};
+    std::uint32_t RawWiFiTimestampMicroseconds{0U};
+    std::uint64_t CallbackMonotonicTimestampNanoseconds{0U};
+    std::uint64_t ExtendedWiFiTimestampMicroseconds{0U};
+    std::int64_t ObservedCallbackLagMicroseconds{0};
+    std::int64_t SelectedAlignmentMicroseconds{0};
+    std::uint64_t MappedMonotonicTimestampNanoseconds{0U};
+};
+
 /// <summary>
 /// ESPressio Radio concrete implemented with ESP32 raw non-QoS IEEE 802.11 data frames.
 /// </summary>
@@ -58,6 +76,14 @@ struct Raw80211RadioConfiguration {
 /// never understands clock synchronization or another Radio control protocol. Control and standard packets occupy
 /// independent bounded queues so ordinary transfer backlog cannot delay a time-critical control packet before worker
 /// scheduling.
+///
+/// Queue service is cooperative: one worker invocation consumes only a finite snapshot-derived packet quantum and then
+/// returns to the scheduler. Concurrent producer arrivals cannot extend the current pass indefinitely. PHY availability
+/// is a lifecycle-published atomic cache; no packet send/service path interrogates the Wi-Fi driver for channel state.
+///
+/// ESP-IDF's private-epoch RX timestamp is aligned to System monotonic during a finite warm-up window. The best observed
+/// callback-lag alignment is then frozen until a driver timestamp discontinuity or provider restart. This deliberately
+/// avoids the old rolling-minimum mapping whose epoch could move throughout a clock-synchronization session.
 /// </remarks>
 class Raw80211Radio final : public Radio::IRadio, public Radio::IRadioPrioritizedIngress {
 private:
@@ -69,7 +95,7 @@ private:
     static constexpr std::size_t MaximumFrameBytes = Dot11HeaderBytes + EncapsulationBytes + MaximumPayloadBytes;
     static constexpr uint8_t LlcSnap[8] = {0xAA, 0xAA, 0x03, 0x00, 0x00, 0x00, 0x88, 0xB5};
     static constexpr uint8_t RadioBssid[MacBytes] = {0x02, 0x45, 0x53, 0x50, 0x52, 0x01};
-    static constexpr std::size_t ReceiveTimestampAlignmentSamples = 32;
+    static constexpr std::uint32_t ReceiveTimestampAlignmentSamples = 32U;
 
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH > 1,
                   "Raw radio RX queue depth must be at least two");
@@ -80,12 +106,17 @@ private:
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH <= 255,
                   "Raw radio control RX queue depth must fit its indices");
 
+    struct TimestampMapping final {
+        Raw80211ReceiveTimestampStatistics Statistics{};
+    };
+
     struct ReceivedPacket {
         Radio::RadioAddress Source{};
         Radio::RadioAddress Destination{};
         uint16_t Length = 0;
         int16_t RssiDbm = 0;
         uint64_t TimestampNanoseconds = 0;
+        Raw80211ReceiveTimestampStatistics TimestampEvidence{};
         std::array<uint8_t, MaximumPayloadBytes> Payload{};
     };
 
@@ -121,13 +152,22 @@ private:
 
     std::atomic<bool> _started{false};
     bool _promiscuousWasEnabled = false;
+    bool _phyRegistered = false;
+
+    // Single-writer state: only the process-global ESP-IDF Raw80211 callback mutates the mapping below.
     bool _hasReceiveTimestampAlignment = false;
-    uint32_t _lastWiFiReceiveTimestampMicroseconds = 0;
-    uint64_t _extendedWiFiReceiveTimestampMicroseconds = 0;
-    int64_t _minimumReceiveCallbackLagMicroseconds = 0;
-    std::array<int64_t, ReceiveTimestampAlignmentSamples> _receiveTimestampAlignments{};
-    uint8_t _receiveTimestampAlignmentCount = 0;
-    uint8_t _receiveTimestampAlignmentWriteIndex = 0;
+    bool _receiveTimestampAlignmentFrozen = false;
+    uint32_t _lastWiFiReceiveTimestampMicroseconds = 0U;
+    uint64_t _extendedWiFiReceiveTimestampMicroseconds = 0U;
+    int64_t _selectedReceiveAlignmentMicroseconds = 0;
+    uint32_t _receiveTimestampAlignmentCount = 0U;
+    uint32_t _receiveTimestampAlignmentResetCount = 0U;
+    uint64_t _receiveTimestampSampleNumber = 0U;
+
+    // Published only after receiver processing, never from the Wi-Fi callback. Diagnostic readers cannot delay T2/T4.
+    mutable System::Synchronization::Mutex _timestampStatisticsMutex;
+    Raw80211ReceiveTimestampStatistics _lastStandardTimestampStatistics{};
+    Raw80211ReceiveTimestampStatistics _lastControlTimestampStatistics{};
 
     static std::atomic<Raw80211Radio*>& CallbackInstance() noexcept {
         static std::atomic<Raw80211Radio*> instance{nullptr};
@@ -181,7 +221,7 @@ private:
         const std::uint8_t* frame,
         std::uint16_t payloadLength,
         std::int16_t rssiDbm,
-        std::uint64_t timestampNanoseconds
+        const Raw80211ReceiveTimestampStatistics& timestampEvidence
     ) noexcept {
         if (queue.empty()) {
             droppedPackets.fetch_add(1U, std::memory_order_relaxed);
@@ -200,7 +240,8 @@ private:
         queued.Destination = Radio::RadioAddress::FromBytes(frame + 4, MacBytes);
         queued.Length = payloadLength;
         queued.RssiDbm = rssiDbm;
-        queued.TimestampNanoseconds = timestampNanoseconds;
+        queued.TimestampNanoseconds = timestampEvidence.MappedMonotonicTimestampNanoseconds;
+        queued.TimestampEvidence = timestampEvidence;
         if (payloadLength != 0U) {
             std::memcpy(
                 queued.Payload.data(),
@@ -213,15 +254,34 @@ private:
         return true;
     }
 
-    void DrainQueue(
+    Radio::RadioIngressServiceResult ServiceQueue(
         ReceiveQueue& queue,
         std::atomic<std::uint8_t>& readIndex,
         std::atomic<std::uint8_t>& writeIndex,
-        Radio::IRadioReceiver* receiver
+        Radio::IRadioReceiver* receiver,
+        std::size_t maximumPackets,
+        bool controlQueue
     ) {
-        while (true) {
-            const auto read = readIndex.load(std::memory_order_relaxed);
-            if (read == writeIndex.load(std::memory_order_acquire)) return;
+        if (queue.empty()) return {};
+
+        const auto initialRead = readIndex.load(std::memory_order_relaxed);
+        const auto initialWrite = writeIndex.load(std::memory_order_acquire);
+        const auto initialDepth = QueueDepth(initialRead, initialWrite, queue.size());
+        if (initialDepth == 0U) return {};
+
+        // Hot-path availability is an atomic cache read only. No Wi-Fi mutex or ESP-IDF query is reachable here.
+        if (!SharedWiFiPhy().CachedRawAccess()) {
+            readIndex.store(initialWrite, std::memory_order_release);
+            return {};
+        }
+
+        const std::size_t finiteDefault = queue.size() > 1U ? queue.size() - 1U : 1U;
+        const std::size_t requested = maximumPackets == 0U ? finiteDefault : maximumPackets;
+        const std::size_t toProcess = std::min<std::size_t>(requested, initialDepth);
+
+        auto read = initialRead;
+        std::uint32_t processed = 0U;
+        for (std::size_t index = 0U; index < toProcess; ++index) {
             const auto& queued = queue[read];
             Radio::RadioPacketView view;
             view.Source = queued.Source;
@@ -233,64 +293,100 @@ private:
             view.Flags = queued.Destination.IsBroadcast()
                 ? Radio::RadioPacketFlag::Broadcast
                 : Radio::RadioPacketFlag::None;
+
             if (receiver != nullptr) receiver->OnRadioPacket(*this, view);
-            readIndex.store(
-                static_cast<std::uint8_t>((read + 1U) % queue.size()),
-                std::memory_order_release);
+
+            // Publish timestamp diagnostics only after protocol processing so diagnostics can never delay T2/T4 work.
+            {
+                std::lock_guard<System::Synchronization::Mutex> lock(_timestampStatisticsMutex);
+                if (controlQueue) _lastControlTimestampStatistics = queued.TimestampEvidence;
+                else _lastStandardTimestampStatistics = queued.TimestampEvidence;
+            }
+
+            read = static_cast<std::uint8_t>((read + 1U) % queue.size());
+            readIndex.store(read, std::memory_order_release);
+            ++processed;
         }
+
+        const auto latestWrite = writeIndex.load(std::memory_order_acquire);
+        return {processed, read != latestWrite};
     }
 
-    uint64_t MapReceiveTimestamp(
+    Raw80211ReceiveTimestampStatistics MapReceiveTimestamp(
         uint32_t wifiTimestampMicroseconds,
         uint64_t callbackTimestampNanoseconds
     ) noexcept {
         const uint64_t callbackMicroseconds = callbackTimestampNanoseconds / 1000ULL;
-        bool resetAlignmentWindow = false;
+        bool resetAlignment = false;
+
         if (!_hasReceiveTimestampAlignment) {
             _hasReceiveTimestampAlignment = true;
             _lastWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
             _extendedWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
-            resetAlignmentWindow = true;
+            resetAlignment = true;
         } else {
             const uint32_t elapsed = wifiTimestampMicroseconds - _lastWiFiReceiveTimestampMicroseconds;
             _lastWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
             if (elapsed > 0x80000000UL) {
+                // Treat a large backwards discontinuity as driver/timestamp-epoch restart, not normal uint32 wrap.
                 _extendedWiFiReceiveTimestampMicroseconds = wifiTimestampMicroseconds;
-                resetAlignmentWindow = true;
+                resetAlignment = true;
             } else {
                 _extendedWiFiReceiveTimestampMicroseconds += elapsed;
             }
         }
 
-        if (resetAlignmentWindow) {
-            _receiveTimestampAlignmentCount = 0;
-            _receiveTimestampAlignmentWriteIndex = 0;
-        }
         const int64_t observedCallbackLag =
             static_cast<int64_t>(callbackMicroseconds) -
             static_cast<int64_t>(_extendedWiFiReceiveTimestampMicroseconds);
-        _receiveTimestampAlignments[_receiveTimestampAlignmentWriteIndex] = observedCallbackLag;
-        _receiveTimestampAlignmentWriteIndex = static_cast<uint8_t>(
-            (_receiveTimestampAlignmentWriteIndex + 1U) % ReceiveTimestampAlignmentSamples);
-        if (_receiveTimestampAlignmentCount < ReceiveTimestampAlignmentSamples) {
-            ++_receiveTimestampAlignmentCount;
+
+        if (resetAlignment) {
+            _receiveTimestampAlignmentCount = 0U;
+            _receiveTimestampAlignmentFrozen = false;
+            _selectedReceiveAlignmentMicroseconds = observedCallbackLag;
+            ++_receiveTimestampAlignmentResetCount;
         }
-        _minimumReceiveCallbackLagMicroseconds = _receiveTimestampAlignments[0];
-        for (uint8_t index = 1; index < _receiveTimestampAlignmentCount; ++index) {
-            if (_receiveTimestampAlignments[index] < _minimumReceiveCallbackLagMicroseconds) {
-                _minimumReceiveCallbackLagMicroseconds = _receiveTimestampAlignments[index];
+
+        if (!_receiveTimestampAlignmentFrozen) {
+            if (_receiveTimestampAlignmentCount == 0U ||
+                observedCallbackLag < _selectedReceiveAlignmentMicroseconds) {
+                _selectedReceiveAlignmentMicroseconds = observedCallbackLag;
+            }
+            if (_receiveTimestampAlignmentCount < ReceiveTimestampAlignmentSamples) {
+                ++_receiveTimestampAlignmentCount;
+            }
+            if (_receiveTimestampAlignmentCount >= ReceiveTimestampAlignmentSamples) {
+                _receiveTimestampAlignmentFrozen = true;
             }
         }
 
         const int64_t mappedMicroseconds =
             static_cast<int64_t>(_extendedWiFiReceiveTimestampMicroseconds) +
-            _minimumReceiveCallbackLagMicroseconds;
-        if (mappedMicroseconds <= 0) return 1U;
-        if (static_cast<uint64_t>(mappedMicroseconds) >
-            std::numeric_limits<uint64_t>::max() / 1000ULL) {
-            return std::numeric_limits<uint64_t>::max();
+            _selectedReceiveAlignmentMicroseconds;
+
+        std::uint64_t mappedNanoseconds = 1U;
+        if (mappedMicroseconds > 0) {
+            if (static_cast<uint64_t>(mappedMicroseconds) >
+                std::numeric_limits<uint64_t>::max() / 1000ULL) {
+                mappedNanoseconds = std::numeric_limits<uint64_t>::max();
+            } else {
+                mappedNanoseconds = static_cast<uint64_t>(mappedMicroseconds) * 1000ULL;
+            }
         }
-        return static_cast<uint64_t>(mappedMicroseconds) * 1000ULL;
+
+        Raw80211ReceiveTimestampStatistics statistics{};
+        statistics.SampleNumber = ++_receiveTimestampSampleNumber;
+        statistics.AlignmentResetCount = _receiveTimestampAlignmentResetCount;
+        statistics.AlignmentSampleCount = _receiveTimestampAlignmentCount;
+        statistics.AlignmentFrozen = _receiveTimestampAlignmentFrozen;
+        statistics.AlignmentResetOnThisSample = resetAlignment;
+        statistics.RawWiFiTimestampMicroseconds = wifiTimestampMicroseconds;
+        statistics.CallbackMonotonicTimestampNanoseconds = callbackTimestampNanoseconds;
+        statistics.ExtendedWiFiTimestampMicroseconds = _extendedWiFiReceiveTimestampMicroseconds;
+        statistics.ObservedCallbackLagMicroseconds = observedCallbackLag;
+        statistics.SelectedAlignmentMicroseconds = _selectedReceiveAlignmentMicroseconds;
+        statistics.MappedMonotonicTimestampNanoseconds = mappedNanoseconds;
+        return statistics;
     }
 
     static void PromiscuousReceive(void* buffer, wifi_promiscuous_pkt_type_t type) {
@@ -322,7 +418,7 @@ private:
 
         const uint64_t callbackTimestampNanoseconds =
             System::Clock::Monotonic().NowNanoseconds();
-        const auto receiveTimestampNanoseconds = self->MapReceiveTimestamp(
+        const auto timestampEvidence = self->MapReceiveTimestamp(
             packet->rx_ctrl.timestamp,
             callbackTimestampNanoseconds);
 
@@ -337,7 +433,7 @@ private:
                     frame,
                     payloadLength,
                     packet->rx_ctrl.rssi,
-                    receiveTimestampNanoseconds)) return;
+                    timestampEvidence)) return;
             if (auto* signal = self->_controlWorkSignal.load(std::memory_order_acquire)) {
                 signal->OnRadioWorkAvailable(*self);
             }
@@ -354,7 +450,7 @@ private:
                 frame,
                 payloadLength,
                 packet->rx_ctrl.rssi,
-                receiveTimestampNanoseconds)) return;
+                timestampEvidence)) return;
         if (auto* signal = self->_workSignal.load(std::memory_order_acquire)) {
             signal->OnRadioWorkAvailable(*self);
         }
@@ -367,8 +463,10 @@ private:
         return true;
     }
 
-    bool SharedPhyAvailable(bool applyWhenUnconstrained) const noexcept {
-        return static_cast<bool>(SharedWiFiPhy().ResolveRawAccess(_configuration.Channel, applyWhenUnconstrained));
+    void ReleasePhyRegistration() noexcept {
+        if (!_phyRegistered) return;
+        SharedWiFiPhy().ReleaseRawAccess();
+        _phyRegistered = false;
     }
 
 public:
@@ -400,13 +498,19 @@ public:
         if (_configuration.Interface == WIFI_IF_STA && mode == WIFI_MODE_AP) return false;
         if (_configuration.Interface == WIFI_IF_AP && mode == WIFI_MODE_STA) return false;
 
-        if (!SharedPhyAvailable(true)) return false;
-        if (!SharedWiFiPhy().RequirePrecisionReceiveTimestamps()) return false;
-        if (!ResolveLocalAddress()) return false;
+        const auto phyAccess = SharedWiFiPhy().RegisterRawAccess(_configuration.Channel, true);
+        if (!phyAccess) return false;
+        _phyRegistered = true;
+
+        if (!ResolveLocalAddress()) {
+            ReleasePhyRegistration();
+            return false;
+        }
 
         Raw80211Radio* expectedOwner = nullptr;
         if (!CallbackInstance().compare_exchange_strong(
                 expectedOwner, this, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            ReleasePhyRegistration();
             return false;
         }
 
@@ -416,6 +520,7 @@ public:
             expectedOwner = this;
             (void)CallbackInstance().compare_exchange_strong(
                 expectedOwner, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
+            ReleasePhyRegistration();
             return false;
         }
         if (esp_wifi_set_promiscuous(true) != ESP_OK) {
@@ -423,18 +528,27 @@ public:
             expectedOwner = this;
             (void)CallbackInstance().compare_exchange_strong(
                 expectedOwner, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
+            ReleasePhyRegistration();
             return false;
         }
+
         _readIndex.store(0U, std::memory_order_relaxed);
         _writeIndex.store(0U, std::memory_order_relaxed);
         _controlReadIndex.store(0U, std::memory_order_relaxed);
         _controlWriteIndex.store(0U, std::memory_order_relaxed);
         _hasReceiveTimestampAlignment = false;
-        _lastWiFiReceiveTimestampMicroseconds = 0;
-        _extendedWiFiReceiveTimestampMicroseconds = 0;
-        _minimumReceiveCallbackLagMicroseconds = 0;
-        _receiveTimestampAlignmentCount = 0;
-        _receiveTimestampAlignmentWriteIndex = 0;
+        _receiveTimestampAlignmentFrozen = false;
+        _lastWiFiReceiveTimestampMicroseconds = 0U;
+        _extendedWiFiReceiveTimestampMicroseconds = 0U;
+        _selectedReceiveAlignmentMicroseconds = 0;
+        _receiveTimestampAlignmentCount = 0U;
+        _receiveTimestampAlignmentResetCount = 0U;
+        _receiveTimestampSampleNumber = 0U;
+        {
+            std::lock_guard<System::Synchronization::Mutex> lock(_timestampStatisticsMutex);
+            _lastStandardTimestampStatistics = {};
+            _lastControlTimestampStatistics = {};
+        }
         _started.store(true, std::memory_order_release);
         _observers.NotifyStarted(*this);
         return true;
@@ -453,6 +567,7 @@ public:
         _writeIndex.store(0U, std::memory_order_relaxed);
         _controlReadIndex.store(0U, std::memory_order_relaxed);
         _controlWriteIndex.store(0U, std::memory_order_relaxed);
+        ReleasePhyRegistration();
         _observers.NotifyStopped(*this);
     }
 
@@ -486,7 +601,7 @@ public:
             return result;
         };
         if (!IsStarted()) return complete({Radio::RadioSendStatus::NotStarted, 0});
-        if (!SharedPhyAvailable(false)) return complete({Radio::RadioSendStatus::Busy, 0});
+        if (!SharedWiFiPhy().CachedRawAccess()) return complete({Radio::RadioSendStatus::Busy, 0});
         if (!destination.IsValid() || destination.Length != MacBytes)
             return complete({Radio::RadioSendStatus::InvalidAddress, 0});
         if ((payload == nullptr && payloadSize != 0) || payloadSize > MaximumPayloadBytes)
@@ -536,25 +651,31 @@ public:
     }
 
     void DrainInbound() override {
-        if (!SharedPhyAvailable(false)) {
-            _readIndex.store(_writeIndex.load(std::memory_order_acquire), std::memory_order_release);
-            return;
-        }
-        DrainQueue(_receiveQueue, _readIndex, _writeIndex, _receiver);
+        (void)ServiceInbound(0U);
+    }
+
+    Radio::RadioIngressServiceResult ServiceInbound(std::size_t maximumPackets = 0U) override {
+        return ServiceQueue(
+            _receiveQueue,
+            _readIndex,
+            _writeIndex,
+            _receiver,
+            maximumPackets,
+            false);
     }
 
     void DrainControlInbound() override {
-        if (!SharedPhyAvailable(false)) {
-            _controlReadIndex.store(
-                _controlWriteIndex.load(std::memory_order_acquire),
-                std::memory_order_release);
-            return;
-        }
-        DrainQueue(
+        (void)ServiceControlInbound(0U);
+    }
+
+    Radio::RadioIngressServiceResult ServiceControlInbound(std::size_t maximumPackets = 0U) override {
+        return ServiceQueue(
             _controlReceiveQueue,
             _controlReadIndex,
             _controlWriteIndex,
-            _controlReceiver);
+            _controlReceiver,
+            maximumPackets,
+            true);
     }
 
     Radio::RadioIngressQueueStatistics StandardIngressStatistics() const noexcept override {
@@ -579,6 +700,16 @@ public:
             _controlHighWatermark.load(std::memory_order_relaxed),
             _controlReceiveQueue.empty() ? 0U : static_cast<std::uint32_t>(_controlReceiveQueue.size() - 1U)
         };
+    }
+
+    Raw80211ReceiveTimestampStatistics StandardReceiveTimestampStatistics() const noexcept {
+        std::lock_guard<System::Synchronization::Mutex> lock(_timestampStatisticsMutex);
+        return _lastStandardTimestampStatistics;
+    }
+
+    Raw80211ReceiveTimestampStatistics ControlReceiveTimestampStatistics() const noexcept {
+        std::lock_guard<System::Synchronization::Mutex> lock(_timestampStatisticsMutex);
+        return _lastControlTimestampStatistics;
     }
 };
 
