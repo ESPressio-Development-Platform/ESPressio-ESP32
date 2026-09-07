@@ -23,6 +23,7 @@
 #include <ESPressio_Synchronization.hpp>
 #include <ESPressio_SystemPlatformClock.hpp>
 
+#include "ESPressio_Raw80211WiFiBootstrap.hpp"
 #include "ESPressio_WiFiPhyCoordinator.hpp"
 
 #ifndef ESPRESSIO_ESP32_RAW_RADIO_RX_QUEUE_DEPTH
@@ -33,10 +34,18 @@
 #define ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH 4
 #endif
 
+#ifndef ESPRESSIO_ESP32_RAW_RADIO_LEAN_WIFI_BOOTSTRAP
+#define ESPRESSIO_ESP32_RAW_RADIO_LEAN_WIFI_BOOTSTRAP 0
+#endif
+
 namespace ESPressio::ESP32Platform {
 
 /// <summary>Compile-time contract: Raw80211 RX evidence uses System::Clock::Monotonic's domain.</summary>
 inline constexpr bool Raw80211ReceiveTimestampUsesSystemMonotonic = true;
+
+/// <summary>Whether this build uses the opt-in raw-only lean ESP-IDF Wi-Fi bootstrap when Raw80211 owns driver startup.</summary>
+inline constexpr bool Raw80211LeanWiFiBootstrapEnabled =
+    ESPRESSIO_ESP32_RAW_RADIO_LEAN_WIFI_BOOTSTRAP != 0;
 
 /// <summary>Configuration for the ESP32 integrated Wi-Fi raw IEEE 802.11 packet-radio provider.</summary>
 struct Raw80211RadioConfiguration {
@@ -80,6 +89,11 @@ struct Raw80211ReceiveTimestampStatistics final {
 /// Queue service is cooperative: one worker invocation consumes only a finite snapshot-derived packet quantum and then
 /// returns to the scheduler. Concurrent producer arrivals cannot extend the current pass indefinitely. PHY availability
 /// is a lifecycle-published atomic cache; no packet send/service path interrogates the Wi-Fi driver for channel state.
+///
+/// When ESPRESSIO_ESP32_RAW_RADIO_LEAN_WIFI_BOOTSTRAP is enabled and no Wi-Fi driver exists yet, the provider starts an
+/// ESP-IDF station driver with the bounded Raw80211-only memory profile instead of Arduino's general-purpose WiFi station
+/// lifecycle. This is intended only for compositions that do not later attach ordinary Wi-Fi/LwIP networking. If Wi-Fi
+/// already owns the PHY, Raw80211 always joins that existing lifecycle unchanged.
 ///
 /// ESP-IDF's private-epoch RX timestamp is aligned to System monotonic during a finite warm-up window. The best observed
 /// callback-lag alignment is then frozen until a driver timestamp discontinuity or provider restart. This deliberately
@@ -153,6 +167,7 @@ private:
     std::atomic<bool> _started{false};
     bool _promiscuousWasEnabled = false;
     bool _phyRegistered = false;
+    Raw80211WiFiBootstrap _leanWiFiBootstrap{};
 
     // Single-writer state: only the process-global ESP-IDF Raw80211 callback mutates the mapping below.
     bool _hasReceiveTimestampAlignment = false;
@@ -469,6 +484,12 @@ private:
         _phyRegistered = false;
     }
 
+    void ReleaseOwnedWiFiBootstrap() noexcept {
+#if ESPRESSIO_ESP32_RAW_RADIO_LEAN_WIFI_BOOTSTRAP
+        _leanWiFiBootstrap.Shutdown();
+#endif
+    }
+
 public:
     explicit Raw80211Radio(Raw80211RadioConfiguration configuration = {}) noexcept
         : _configuration(configuration) {}
@@ -491,19 +512,40 @@ public:
         wifi_mode_t mode = WIFI_MODE_NULL;
         const esp_err_t modeResult = esp_wifi_get_mode(&mode);
         if ((modeResult != ESP_OK || mode == WIFI_MODE_NULL) && _configuration.InitializeStationModeWhenNeeded) {
+#if ESPRESSIO_ESP32_RAW_RADIO_LEAN_WIFI_BOOTSTRAP
+            const auto bootstrap = _leanWiFiBootstrap.Initialize();
+            if (!bootstrap || esp_wifi_get_mode(&mode) != ESP_OK) {
+                ReleaseOwnedWiFiBootstrap();
+                return false;
+            }
+#else
             if (!::WiFi.mode(WIFI_STA)) return false;
             mode = WIFI_MODE_STA;
+#endif
         }
-        if (mode == WIFI_MODE_NULL) return false;
-        if (_configuration.Interface == WIFI_IF_STA && mode == WIFI_MODE_AP) return false;
-        if (_configuration.Interface == WIFI_IF_AP && mode == WIFI_MODE_STA) return false;
+        if (mode == WIFI_MODE_NULL) {
+            ReleaseOwnedWiFiBootstrap();
+            return false;
+        }
+        if (_configuration.Interface == WIFI_IF_STA && mode == WIFI_MODE_AP) {
+            ReleaseOwnedWiFiBootstrap();
+            return false;
+        }
+        if (_configuration.Interface == WIFI_IF_AP && mode == WIFI_MODE_STA) {
+            ReleaseOwnedWiFiBootstrap();
+            return false;
+        }
 
         const auto phyAccess = SharedWiFiPhy().RegisterRawAccess(_configuration.Channel, true);
-        if (!phyAccess) return false;
+        if (!phyAccess) {
+            ReleaseOwnedWiFiBootstrap();
+            return false;
+        }
         _phyRegistered = true;
 
         if (!ResolveLocalAddress()) {
             ReleasePhyRegistration();
+            ReleaseOwnedWiFiBootstrap();
             return false;
         }
 
@@ -511,6 +553,7 @@ public:
         if (!CallbackInstance().compare_exchange_strong(
                 expectedOwner, this, std::memory_order_acq_rel, std::memory_order_acquire)) {
             ReleasePhyRegistration();
+            ReleaseOwnedWiFiBootstrap();
             return false;
         }
 
@@ -521,6 +564,7 @@ public:
             (void)CallbackInstance().compare_exchange_strong(
                 expectedOwner, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
             ReleasePhyRegistration();
+            ReleaseOwnedWiFiBootstrap();
             return false;
         }
         if (esp_wifi_set_promiscuous(true) != ESP_OK) {
@@ -529,6 +573,7 @@ public:
             (void)CallbackInstance().compare_exchange_strong(
                 expectedOwner, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
             ReleasePhyRegistration();
+            ReleaseOwnedWiFiBootstrap();
             return false;
         }
 
@@ -568,6 +613,7 @@ public:
         _controlReadIndex.store(0U, std::memory_order_relaxed);
         _controlWriteIndex.store(0U, std::memory_order_relaxed);
         ReleasePhyRegistration();
+        ReleaseOwnedWiFiBootstrap();
         _observers.NotifyStopped(*this);
     }
 
