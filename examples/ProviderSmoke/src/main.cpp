@@ -28,11 +28,13 @@ static_assert(MeshAccounting::TotalAccountedBytes > MeshAccounting::MeshPrincipa
 #include <ESPressio_Memory.hpp>
 #include <ESPressio_Radio.hpp>
 #include <ESPressio_Raw80211Radio.hpp>
+#include <ESPressio_Raw80211WiFiBootstrap.hpp>
 
 namespace {
 ESPressio::Radio::RadioTransport radioTransport;
 ESPressio::Radio::RadioWorker radioWorker(radioTransport);
 ESPressio::ESP32Platform::Raw80211Radio rawRadio;
+ESPressio::ESP32Platform::Raw80211WiFiBootstrap leanRawBootstrap;
 }
 
 void setup() {
@@ -51,12 +53,18 @@ void setup() {
     // Route selection is intentionally absent: it belongs to ESPressio-Mesh, not RadioWorker/RadioTransport.
     const bool interfaceAttached = radioWorker.AddInterface(rawRadio);
 
+    // Compile the explicit Raw-only bootstrap surface. Runtime users call this only when no ordinary WiFi/LwIP
+    // lifecycle will share the driver; shared-WiFi compositions leave Raw80211Radio on its existing join path.
+    const auto bootstrapConfiguration = leanRawBootstrap.Configuration();
+
     volatile int observed = values.front();
     volatile uint32_t requests = statistics.ExternalPreferredRequests;
     volatile bool attached = interfaceAttached;
+    volatile uint8_t staticRxBuffers = bootstrapConfiguration.StaticRxBuffers;
     (void)observed;
     (void)requests;
     (void)attached;
+    (void)staticRxBuffers;
 }
 
 void loop() {}
