@@ -41,17 +41,17 @@ struct Raw80211WiFiBootstrapResult final {
 /// ESPressio-WiFi, LwIP station/AP networking, or another owner to attach to the already-initialized driver. Shared-WiFi
 /// compositions must retain the ordinary Wi-Fi lifecycle and let Raw80211 join that existing PHY instead.
 ///
-/// The defaults are deliberately aligned with the bounded Raw80211 provider queues rather than ESP-IDF's general-purpose
-/// station throughput defaults. AMPDU/AMSDU, CSI and Wi-Fi NVS are disabled because the Raw80211 provider emits and accepts
-/// independent non-QoS frames and keeps its own bounded queues. Dynamic RX is kept above the static hardware-buffer count,
-/// and TX remains whichever allocation mode the target's WIFI_INIT_CONFIG_DEFAULT selected, with only that mode's buffer
-/// count reduced.
+/// The defaults deliberately retain six static hardware RX buffers and a larger dynamic RX pool rather than chasing the
+/// absolute minimum allocation. The principal saving comes from replacing the general-purpose station profile and its
+/// unused networking/throughput features, not from starving the radio receive path. AMPDU/AMSDU, CSI and Wi-Fi NVS are
+/// disabled because this provider emits and accepts independent non-QoS frames and keeps its own bounded queues. TX keeps
+/// whichever allocation mode WIFI_INIT_CONFIG_DEFAULT selected, with only that active mode's buffer count reduced.
 /// </remarks>
 struct Raw80211WiFiBootstrapConfiguration final {
-    std::uint8_t StaticRxBuffers{4U};
-    std::uint8_t DynamicRxBuffers{8U};
+    std::uint8_t StaticRxBuffers{6U};
+    std::uint8_t DynamicRxBuffers{12U};
     std::uint8_t DynamicTxBuffers{8U};
-    std::uint8_t StaticTxBuffers{4U};
+    std::uint8_t StaticTxBuffers{6U};
     bool DisableAmpdu{true};
     bool DisableNvs{true};
 };
