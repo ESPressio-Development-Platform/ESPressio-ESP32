@@ -78,6 +78,8 @@ private:
                   "Raw radio control RX queue depth must be at least two");
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH <= 255,
                   "Raw radio control RX queue depth must fit its indices");
+    static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
+                  "Raw80211 callback counters require lock-free 32-bit atomics");
 
     struct ReceivedPacket {
         Radio::RadioAddress Source{};
@@ -109,11 +111,13 @@ private:
     std::atomic<uint8_t> _controlWriteIndex{0};
     std::atomic<uint8_t> _controlReadIndex{0};
 
-    std::atomic<std::uint64_t> _standardAcceptedPackets{0U};
-    std::atomic<std::uint64_t> _standardDroppedPackets{0U};
+    // These counters are mutated from the ESP-IDF receive callback. Keep them 32-bit and require lock-free atomics on
+    // this target; the public statistics snapshot widens them to its diagnostic-width fields.
+    std::atomic<std::uint32_t> _standardAcceptedPackets{0U};
+    std::atomic<std::uint32_t> _standardDroppedPackets{0U};
     std::atomic<std::uint32_t> _standardHighWatermark{0U};
-    std::atomic<std::uint64_t> _controlAcceptedPackets{0U};
-    std::atomic<std::uint64_t> _controlDroppedPackets{0U};
+    std::atomic<std::uint32_t> _controlAcceptedPackets{0U};
+    std::atomic<std::uint32_t> _controlDroppedPackets{0U};
     std::atomic<std::uint32_t> _controlHighWatermark{0U};
 
     std::atomic<bool> _started{false};
@@ -172,8 +176,8 @@ private:
         ReceiveQueue& queue,
         std::atomic<std::uint8_t>& writeIndex,
         std::atomic<std::uint8_t>& readIndex,
-        std::atomic<std::uint64_t>& acceptedPackets,
-        std::atomic<std::uint64_t>& droppedPackets,
+        std::atomic<std::uint32_t>& acceptedPackets,
+        std::atomic<std::uint32_t>& droppedPackets,
         std::atomic<std::uint32_t>& highWatermark,
         const std::uint8_t* frame,
         std::uint16_t payloadLength,
@@ -547,8 +551,8 @@ public:
         const auto read = _readIndex.load(std::memory_order_acquire);
         const auto write = _writeIndex.load(std::memory_order_acquire);
         return {
-            _standardAcceptedPackets.load(std::memory_order_relaxed),
-            _standardDroppedPackets.load(std::memory_order_relaxed),
+            static_cast<std::uint64_t>(_standardAcceptedPackets.load(std::memory_order_relaxed)),
+            static_cast<std::uint64_t>(_standardDroppedPackets.load(std::memory_order_relaxed)),
             QueueDepth(read, write, _receiveQueue.size()),
             _standardHighWatermark.load(std::memory_order_relaxed),
             _receiveQueue.empty() ? 0U : static_cast<std::uint32_t>(_receiveQueue.size() - 1U)
@@ -559,8 +563,8 @@ public:
         const auto read = _controlReadIndex.load(std::memory_order_acquire);
         const auto write = _controlWriteIndex.load(std::memory_order_acquire);
         return {
-            _controlAcceptedPackets.load(std::memory_order_relaxed),
-            _controlDroppedPackets.load(std::memory_order_relaxed),
+            static_cast<std::uint64_t>(_controlAcceptedPackets.load(std::memory_order_relaxed)),
+            static_cast<std::uint64_t>(_controlDroppedPackets.load(std::memory_order_relaxed)),
             QueueDepth(read, write, _controlReceiveQueue.size()),
             _controlHighWatermark.load(std::memory_order_relaxed),
             _controlReceiveQueue.empty() ? 0U : static_cast<std::uint32_t>(_controlReceiveQueue.size() - 1U)
