@@ -90,16 +90,16 @@ private:
         System::Memory::MemoryPolicy::ExternalPreferred
     >;
 
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Bytes (ByteBuffer): 12 bytes [Capacity * (1 bytes) element storage]
-     * - Encoding (WebCredentialEncoding): 1 bytes [0 bytes dynamic allocation]
-     * Total Memory: 16 bytes [Bytes: Capacity * (1 bytes) element storage]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Bytes (ByteBuffer): 12 bytes [Capacity * (1 bytes) element storage]
+ * - Encoding (WebCredentialEncoding): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 16 bytes [Bytes: Capacity * (1 bytes) element storage]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct NativeCredential final {
         ByteBuffer Bytes;
         WebCredentialEncoding Encoding = WebCredentialEncoding::Pem;
@@ -149,17 +149,17 @@ struct NativeCredential final {
         }
     };
 
-        /**
-     * ESPressio Memory Audit
-     * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
-     * Members:
-     * - _owner (ESP32WebSocketClientPlatform&): 4 bytes [0 bytes dynamic allocation]
-     * - _id (WebSocketConnectionId): 8 bytes [0 bytes dynamic allocation]
-     * - _open (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
-     * Total Memory: 20 bytes [0 bytes dynamic allocation]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
+ * Members:
+ * - _owner (ESP32WebSocketClientPlatform&): 4 bytes [0 bytes dynamic allocation]
+ * - _id (WebSocketConnectionId): 8 bytes [0 bytes dynamic allocation]
+ * - _open (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 20 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 class ClientConnection final : public IWebSocketConnection {
     public:
         ClientConnection(ESP32WebSocketClientPlatform& owner, WebSocketConnectionId id)

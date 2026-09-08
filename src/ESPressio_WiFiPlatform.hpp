@@ -282,19 +282,19 @@ public:
     }
 
 private:
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Enabled (bool): 1 bytes [0 bytes dynamic allocation]
-     * - SSID (WiFiString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - Password (WiFiString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - Addressing (AddressMode): 1 bytes [0 bytes dynamic allocation]
-     * - StaticNetwork (NetworkAddress): 6 bytes [0 bytes dynamic allocation]
-     * Total Memory: 60 bytes [SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Enabled (bool): 1 bytes [0 bytes dynamic allocation]
+ * - SSID (WiFiString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - Password (WiFiString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - Addressing (AddressMode): 1 bytes [0 bytes dynamic allocation]
+ * - StaticNetwork (NetworkAddress): 6 bytes [0 bytes dynamic allocation]
+ * Total Memory: 60 bytes [SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct PlatformClientConfiguration {
         bool Enabled = false;
         WiFiString SSID;
@@ -303,20 +303,20 @@ struct PlatformClientConfiguration {
         NetworkAddress StaticNetwork{};
     };
 
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Mode (WiFiMode): 1 bytes [0 bytes dynamic allocation]
-     * - Client (PlatformClientConfiguration): 60 bytes [SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - AccessPoint (AccessPointConfiguration): 72 bytes [SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - Reconnect (ReconnectPolicy): 24 bytes [0 bytes dynamic allocation]
-     * - TxPowerDbm (int8_t): 1 bytes [0 bytes dynamic allocation]
-     * - PowerSave (bool): 1 bytes [0 bytes dynamic allocation]
-     * Total Memory: 164 bytes [Client: SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Client: Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; AccessPoint: SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; AccessPoint: Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Mode (WiFiMode): 1 bytes [0 bytes dynamic allocation]
+ * - Client (PlatformClientConfiguration): 60 bytes [SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - AccessPoint (AccessPointConfiguration): 72 bytes [SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - Reconnect (ReconnectPolicy): 24 bytes [0 bytes dynamic allocation]
+ * - TxPowerDbm (int8_t): 1 bytes [0 bytes dynamic allocation]
+ * - PowerSave (bool): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 164 bytes [Client: SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Client: Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; AccessPoint: SSID: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; AccessPoint: Password: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct PlatformConfiguration {
         WiFiMode Mode = WiFiMode::AccessPoint;
         PlatformClientConfiguration Client{};

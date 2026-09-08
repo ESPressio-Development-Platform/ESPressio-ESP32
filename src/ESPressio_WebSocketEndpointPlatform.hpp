@@ -98,20 +98,20 @@ private:
         System::Memory::MemoryPolicy::ExternalPreferred
     >;
 
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - AllocationProvider (System::Memory::IMemoryProvider*): 4 bytes [0 bytes dynamic allocation]
-     * - Server (httpd_handle_t): 4 bytes [0 bytes dynamic allocation]
-     * - Socket (int): 4 bytes [0 bytes dynamic allocation]
-     * - CloseAfterSend (bool): 1 bytes [0 bytes dynamic allocation]
-     * - Payload (ByteBuffer): 12 bytes [Capacity * (1 bytes) element storage]
-     * - Frame (httpd_ws_frame_t): sizeof(httpd_ws_frame_t) (target/toolchain dependent) [0 bytes dynamic allocation]
-     * Total Memory: 28 bytes known/aligned storage + sizeof(httpd_ws_frame_t) (target/toolchain dependent) [Payload: Capacity * (1 bytes) element storage]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - AllocationProvider (System::Memory::IMemoryProvider*): 4 bytes [0 bytes dynamic allocation]
+ * - Server (httpd_handle_t): 4 bytes [0 bytes dynamic allocation]
+ * - Socket (int): 4 bytes [0 bytes dynamic allocation]
+ * - CloseAfterSend (bool): 1 bytes [0 bytes dynamic allocation]
+ * - Payload (ByteBuffer): 12 bytes [Capacity * (1 bytes) element storage]
+ * - Frame (httpd_ws_frame_t): sizeof(httpd_ws_frame_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * Total Memory: 28 bytes known/aligned storage + sizeof(httpd_ws_frame_t) (target/toolchain dependent) [Payload: Capacity * (1 bytes) element storage]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct SendOperation final {
         System::Memory::IMemoryProvider* AllocationProvider = nullptr;
         httpd_handle_t Server = nullptr;
@@ -476,21 +476,21 @@ private:
  */
 class ESP32WebSocketEndpointPlatform final : public IWebSocketEndpointPlatform {
 private:
-        /**
-     * ESPressio Memory Audit
-     * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
-     * Members:
-     * - _active (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
-     * - _mutex (std::mutex): 4 bytes [native synchronization state may allocate platform resources lazily]
-     * - _sink (IWebSocketEndpointPlatformSink*): 4 bytes [0 bytes dynamic allocation]
-     * - _path (WorkingString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - _protocol (WorkingString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - _connections (ConnectionList): 12 bytes [Capacity * (8 bytes) element storage; N live elements each: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 76 bytes known/aligned storage + sizeof(httpd_ws_type_t) (target/toolchain dependent); N live elements each: pointee: _mutex: native synchronization state may allocate platform resources lazily; N live elements each: pointee: _closeReason: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: pointee: _fragmentBuffer: Capacity * (1 bytes) element storage]
-     * Total Memory: 76 bytes [_mutex: native synchronization state may allocate platform resources lazily; _path: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _protocol: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _connections: Capacity * (8 bytes) element storage; _connections: N live elements each: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 76 bytes known/aligned storage + sizeof(httpd_ws_type_t) (target/toolchain dependent); _connections: N live elements each: pointee: _mutex: native synchronization state may allocate platform resources lazily; _connections: N live elements each: pointee: _closeReason: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _connections: N live elements each: pointee: _fragmentBuffer: Capacity * (1 bytes) element storage]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
+ * Members:
+ * - _active (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
+ * - _mutex (std::mutex): 4 bytes [native synchronization state may allocate platform resources lazily]
+ * - _sink (IWebSocketEndpointPlatformSink*): 4 bytes [0 bytes dynamic allocation]
+ * - _path (WorkingString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - _protocol (WorkingString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - _connections (ConnectionList): 12 bytes [Capacity * (8 bytes) element storage; N live elements each: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 76 bytes known/aligned storage + sizeof(httpd_ws_type_t) (target/toolchain dependent); N live elements each: pointee: _mutex: native synchronization state may allocate platform resources lazily; N live elements each: pointee: _closeReason: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: pointee: _fragmentBuffer: Capacity * (1 bytes) element storage]
+ * Total Memory: 76 bytes [_mutex: native synchronization state may allocate platform resources lazily; _path: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _protocol: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _connections: Capacity * (8 bytes) element storage; _connections: N live elements each: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 76 bytes known/aligned storage + sizeof(httpd_ws_type_t) (target/toolchain dependent); _connections: N live elements each: pointee: _mutex: native synchronization state may allocate platform resources lazily; _connections: N live elements each: pointee: _closeReason: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _connections: N live elements each: pointee: _fragmentBuffer: Capacity * (1 bytes) element storage]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 class BindingState final : public IESP32HttpWebSocketBinding {
     private:
         using WorkingString = System::Memory::String<

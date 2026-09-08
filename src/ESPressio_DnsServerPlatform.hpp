@@ -302,18 +302,18 @@ private:
         System::Memory::MemoryPolicy::ExternalPreferred
     >;
 
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Call (tcpip_api_call_data): sizeof(tcpip_api_call_data) (target/toolchain dependent) [0 bytes dynamic allocation]
-     * - Owner (ESP32DnsServerPlatform*): 4 bytes [0 bytes dynamic allocation]
-     * - Port (uint16_t): 2 bytes [0 bytes dynamic allocation]
-     * - Result (err_t): sizeof(err_t) (target/toolchain dependent) [0 bytes dynamic allocation]
-     * Total Memory: 6 bytes known/aligned storage + sizeof(tcpip_api_call_data) (target/toolchain dependent) + sizeof(err_t) (target/toolchain dependent) [0 bytes dynamic allocation]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Call (tcpip_api_call_data): sizeof(tcpip_api_call_data) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * - Owner (ESP32DnsServerPlatform*): 4 bytes [0 bytes dynamic allocation]
+ * - Port (uint16_t): 2 bytes [0 bytes dynamic allocation]
+ * - Result (err_t): sizeof(err_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * Total Memory: 6 bytes known/aligned storage + sizeof(tcpip_api_call_data) (target/toolchain dependent) + sizeof(err_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct ApiCall final {
         tcpip_api_call_data Call{};
         ESP32DnsServerPlatform* Owner = nullptr;

@@ -144,18 +144,18 @@ private:
     static_assert(ESPRESSIO_ESP32_BLE_RADIO_TX_QUEUE_DEPTH > 1, "BLE TX queue depth must be at least two");
     static_assert(ESPRESSIO_ESP32_BLE_RADIO_TX_QUEUE_DEPTH <= 255, "BLE TX queue depth must fit its indices");
 
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Source (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
-     * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
-     * - Length (uint8_t): 1 bytes [0 bytes dynamic allocation]
-     * - RssiDbm (int16_t): 2 bytes [0 bytes dynamic allocation]
-     * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 20 bytes [0 bytes dynamic allocation]
-     * Total Memory: 42 bytes [0 bytes dynamic allocation]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Source (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
+ * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
+ * - Length (uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - RssiDbm (int16_t): 2 bytes [0 bytes dynamic allocation]
+ * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 20 bytes [0 bytes dynamic allocation]
+ * Total Memory: 42 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 struct ReceivedPacket {
         Radio::RadioAddress Source{};
         Radio::RadioAddress Destination{};
@@ -164,16 +164,16 @@ struct ReceivedPacket {
         std::array<uint8_t, MaximumPayloadBytes> Payload{};
     };
 
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
-     * - Length (uint8_t): 1 bytes [0 bytes dynamic allocation]
-     * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 20 bytes [0 bytes dynamic allocation]
-     * Total Memory: 30 bytes [0 bytes dynamic allocation]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
+ * - Length (uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 20 bytes [0 bytes dynamic allocation]
+ * Total Memory: 30 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 struct TransmitPacket {
         Radio::RadioAddress Destination{};
         uint8_t Length = 0;

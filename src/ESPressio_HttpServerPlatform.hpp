@@ -316,16 +316,16 @@ private:
  */
 class ESP32HttpResponsePlatform final : public IHttpResponsePlatform {
 private:
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Name (System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred>): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - Value (System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred>): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * Total Memory: 48 bytes [Name: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Value: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Name (System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred>): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - Value (System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred>): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Total Memory: 48 bytes [Name: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Value: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct Header final {
         System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred> Name;
         System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred> Value;

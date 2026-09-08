@@ -193,32 +193,32 @@ private:
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH <= 255,
                   "Raw radio control RX queue depth must fit its indices");
 
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Statistics (Raw80211ReceiveTimestampStatistics): 64 bytes [0 bytes dynamic allocation]
-     * Total Memory: 64 bytes [0 bytes dynamic allocation]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Statistics (Raw80211ReceiveTimestampStatistics): 64 bytes [0 bytes dynamic allocation]
+ * Total Memory: 64 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 struct TimestampMapping final {
         Raw80211ReceiveTimestampStatistics Statistics{};
     };
 
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Source (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
-     * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
-     * - Length (uint16_t): 2 bytes [0 bytes dynamic allocation]
-     * - RssiDbm (int16_t): 2 bytes [0 bytes dynamic allocation]
-     * - TimestampNanoseconds (uint64_t): 8 bytes [0 bytes dynamic allocation]
-     * - TimestampEvidence (Raw80211ReceiveTimestampStatistics): 64 bytes [0 bytes dynamic allocation]
-     * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 270 bytes [0 bytes dynamic allocation]
-     * Total Memory: 368 bytes [0 bytes dynamic allocation]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Source (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
+ * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
+ * - Length (uint16_t): 2 bytes [0 bytes dynamic allocation]
+ * - RssiDbm (int16_t): 2 bytes [0 bytes dynamic allocation]
+ * - TimestampNanoseconds (uint64_t): 8 bytes [0 bytes dynamic allocation]
+ * - TimestampEvidence (Raw80211ReceiveTimestampStatistics): 64 bytes [0 bytes dynamic allocation]
+ * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 270 bytes [0 bytes dynamic allocation]
+ * Total Memory: 368 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 struct ReceivedPacket {
         Radio::RadioAddress Source{};
         Radio::RadioAddress Destination{};
