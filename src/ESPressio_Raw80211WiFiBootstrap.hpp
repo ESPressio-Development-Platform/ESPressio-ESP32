@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include <esp_err.h>
+#include <esp_event.h>
 #include <esp_wifi.h>
 
 namespace ESPressio::ESP32Platform {
@@ -16,6 +17,7 @@ enum class Raw80211WiFiBootstrapStatus : std::uint8_t {
     Initialized,
     AlreadyInitialized,
     InvalidConfiguration,
+    EventLoopInitializationFailed,
     DriverInitializationFailed,
     StorageConfigurationFailed,
     ModeConfigurationFailed,
@@ -61,13 +63,15 @@ struct Raw80211WiFiBootstrapConfiguration final {
 /// </summary>
 /// <remarks>
 /// Initialize() is idempotent with respect to an already-running Wi-Fi driver: when another owner initialized Wi-Fi first,
-/// the bootstrap reports AlreadyInitialized and assumes no ownership. When this instance initializes the driver itself,
-/// Shutdown() stops/deinitializes only that owned driver. No esp_netif/LwIP interface is created.
+/// the bootstrap reports AlreadyInitialized and assumes no ownership. When this instance initializes the driver itself it
+/// also creates the default ESP event loop required by the Wi-Fi driver to publish lifecycle events. This deliberately does
+/// not create esp_netif/LwIP networking. Shutdown() releases only resources this bootstrap owns.
 /// </remarks>
 class Raw80211WiFiBootstrap final {
 private:
     Raw80211WiFiBootstrapConfiguration _configuration{};
     bool _ownsDriver{false};
+    bool _ownsDefaultEventLoop{false};
 
     static constexpr int StaticTxBufferType = 0;
 
@@ -78,11 +82,16 @@ private:
                _configuration.StaticTxBuffers != 0U;
     }
 
-    void ReleaseOwnedDriver() noexcept {
-        if (!_ownsDriver) return;
-        (void)esp_wifi_stop();
-        (void)esp_wifi_deinit();
-        _ownsDriver = false;
+    void ReleaseOwnedResources() noexcept {
+        if (_ownsDriver) {
+            (void)esp_wifi_stop();
+            (void)esp_wifi_deinit();
+            _ownsDriver = false;
+        }
+        if (_ownsDefaultEventLoop) {
+            (void)esp_event_loop_delete_default();
+            _ownsDefaultEventLoop = false;
+        }
     }
 
 public:
@@ -94,7 +103,7 @@ public:
     Raw80211WiFiBootstrap& operator=(const Raw80211WiFiBootstrap&) = delete;
 
     ~Raw80211WiFiBootstrap() {
-        ReleaseOwnedDriver();
+        ReleaseOwnedResources();
     }
 
     Raw80211WiFiBootstrapResult Initialize() noexcept {
@@ -107,8 +116,17 @@ public:
 
         wifi_mode_t existingMode = WIFI_MODE_NULL;
         if (esp_wifi_get_mode(&existingMode) == ESP_OK && existingMode != WIFI_MODE_NULL) {
-            // Another lifecycle already owns Wi-Fi. Do not mutate its buffer or feature policy.
+            // Another lifecycle already owns Wi-Fi. Do not mutate its event-loop, buffer, or feature policy.
             return {Raw80211WiFiBootstrapStatus::AlreadyInitialized, ESP_OK};
+        }
+
+        // The Wi-Fi driver posts WIFI_EVENT notifications even in a raw-only composition. Create only the default ESP
+        // event loop; do not initialize esp_netif or LwIP. ESP_ERR_INVALID_STATE means another owner already created it.
+        esp_err_t native = esp_event_loop_create_default();
+        if (native == ESP_OK) {
+            _ownsDefaultEventLoop = true;
+        } else if (native != ESP_ERR_INVALID_STATE) {
+            return {Raw80211WiFiBootstrapStatus::EventLoopInitializationFailed, native};
         }
 
         wifi_init_config_t driver = WIFI_INIT_CONFIG_DEFAULT();
@@ -130,27 +148,28 @@ public:
         }
         if (_configuration.DisableNvs) driver.nvs_enable = 0;
 
-        esp_err_t native = esp_wifi_init(&driver);
+        native = esp_wifi_init(&driver);
         if (native != ESP_OK) {
+            ReleaseOwnedResources();
             return {Raw80211WiFiBootstrapStatus::DriverInitializationFailed, native};
         }
         _ownsDriver = true;
 
         native = esp_wifi_set_storage(WIFI_STORAGE_RAM);
         if (native != ESP_OK) {
-            ReleaseOwnedDriver();
+            ReleaseOwnedResources();
             return {Raw80211WiFiBootstrapStatus::StorageConfigurationFailed, native};
         }
 
         native = esp_wifi_set_mode(WIFI_MODE_STA);
         if (native != ESP_OK) {
-            ReleaseOwnedDriver();
+            ReleaseOwnedResources();
             return {Raw80211WiFiBootstrapStatus::ModeConfigurationFailed, native};
         }
 
         native = esp_wifi_start();
         if (native != ESP_OK) {
-            ReleaseOwnedDriver();
+            ReleaseOwnedResources();
             return {Raw80211WiFiBootstrapStatus::DriverStartFailed, native};
         }
 
@@ -158,10 +177,11 @@ public:
     }
 
     void Shutdown() noexcept {
-        ReleaseOwnedDriver();
+        ReleaseOwnedResources();
     }
 
     bool OwnsDriver() const noexcept { return _ownsDriver; }
+    bool OwnsDefaultEventLoop() const noexcept { return _ownsDefaultEventLoop; }
 
     const Raw80211WiFiBootstrapConfiguration& Configuration() const noexcept {
         return _configuration;
