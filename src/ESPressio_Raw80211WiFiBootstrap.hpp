@@ -13,6 +13,13 @@
 namespace ESPressio::ESP32Platform {
 
 /// <summary>Outcome from establishing an ESP-IDF Wi-Fi driver exclusively for Raw80211 use.</summary>
+/**
+ * ESPressio Memory Audit
+ * Underlying storage: 1 bytes
+ * Total Memory: 1 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 enum class Raw80211WiFiBootstrapStatus : std::uint8_t {
     Initialized,
     AlreadyInitialized,
@@ -25,6 +32,15 @@ enum class Raw80211WiFiBootstrapStatus : std::uint8_t {
 };
 
 /// <summary>Detailed Raw80211-only Wi-Fi bootstrap result.</summary>
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Status (Raw80211WiFiBootstrapStatus): 1 bytes [0 bytes dynamic allocation]
+ * - NativeStatus (esp_err_t): 4 bytes [0 bytes dynamic allocation]
+ * Total Memory: 8 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 struct Raw80211WiFiBootstrapResult final {
     Raw80211WiFiBootstrapStatus Status{Raw80211WiFiBootstrapStatus::InvalidConfiguration};
     esp_err_t NativeStatus{ESP_OK};
@@ -49,6 +65,19 @@ struct Raw80211WiFiBootstrapResult final {
 /// disabled because this provider emits and accepts independent non-QoS frames and keeps its own bounded queues. TX keeps
 /// whichever allocation mode WIFI_INIT_CONFIG_DEFAULT selected, with only that active mode's buffer count reduced.
 /// </remarks>
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - StaticRxBuffers (std::uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - DynamicRxBuffers (std::uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - DynamicTxBuffers (std::uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - StaticTxBuffers (std::uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - DisableAmpdu (bool): 1 bytes [0 bytes dynamic allocation]
+ * - DisableNvs (bool): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 6 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 struct Raw80211WiFiBootstrapConfiguration final {
     std::uint8_t StaticRxBuffers{6U};
     std::uint8_t DynamicRxBuffers{12U};
@@ -67,6 +96,16 @@ struct Raw80211WiFiBootstrapConfiguration final {
 /// also creates the default ESP event loop required by the Wi-Fi driver to publish lifecycle events. This deliberately does
 /// not create esp_netif/LwIP networking. Shutdown() releases only resources this bootstrap owns.
 /// </remarks>
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - _configuration (Raw80211WiFiBootstrapConfiguration): 6 bytes [0 bytes dynamic allocation]
+ * - _ownsDriver (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _ownsDefaultEventLoop (bool): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 8 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 class Raw80211WiFiBootstrap final {
 private:
     Raw80211WiFiBootstrapConfiguration _configuration{};

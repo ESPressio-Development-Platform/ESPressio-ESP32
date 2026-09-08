@@ -12,6 +12,23 @@
 namespace ESPressio::WiFi {
 
 /// <summary>Diagnostic snapshot of hardware-global ESP32 Wi-Fi PHY state.</summary>
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Mode (wifi_mode_t): sizeof(wifi_mode_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * - PrimaryChannel (uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - SecondaryChannel (wifi_second_chan_t): sizeof(wifi_second_chan_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * - PowerSave (wifi_ps_type_t): sizeof(wifi_ps_type_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * - MaximumTxPowerQuarterDbm (int8_t): 1 bytes [0 bytes dynamic allocation]
+ * - ModeAvailable (bool): 1 bytes [0 bytes dynamic allocation]
+ * - ChannelAvailable (bool): 1 bytes [0 bytes dynamic allocation]
+ * - PowerSaveAvailable (bool): 1 bytes [0 bytes dynamic allocation]
+ * - TxPowerAvailable (bool): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 6 bytes known/aligned storage + sizeof(wifi_mode_t) (target/toolchain dependent) + sizeof(wifi_second_chan_t) (target/toolchain dependent) + sizeof(wifi_ps_type_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct WiFiRadioFingerprint {
     wifi_mode_t Mode = WIFI_MODE_NULL;
     uint8_t PrimaryChannel = 0;

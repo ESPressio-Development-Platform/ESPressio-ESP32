@@ -48,6 +48,17 @@ inline constexpr bool Raw80211LeanWiFiBootstrapEnabled =
     ESPRESSIO_ESP32_RAW_RADIO_LEAN_WIFI_BOOTSTRAP != 0;
 
 /// <summary>Configuration for the ESP32 integrated Wi-Fi raw IEEE 802.11 packet-radio provider.</summary>
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Interface (wifi_interface_t): sizeof(wifi_interface_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * - Channel (uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - InitializeStationModeWhenNeeded (bool): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 2 bytes known/aligned storage + sizeof(wifi_interface_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct Raw80211RadioConfiguration {
     wifi_interface_t Interface = WIFI_IF_STA;
 
@@ -62,6 +73,24 @@ struct Raw80211RadioConfiguration {
 };
 
 /// <summary>Diagnostic evidence for the most recently worker-serviced Raw80211 receive timestamp.</summary>
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - SampleNumber (std::uint64_t): 8 bytes [0 bytes dynamic allocation]
+ * - AlignmentResetCount (std::uint32_t): 4 bytes [0 bytes dynamic allocation]
+ * - AlignmentSampleCount (std::uint32_t): 4 bytes [0 bytes dynamic allocation]
+ * - AlignmentFrozen (bool): 1 bytes [0 bytes dynamic allocation]
+ * - AlignmentResetOnThisSample (bool): 1 bytes [0 bytes dynamic allocation]
+ * - RawWiFiTimestampMicroseconds (std::uint32_t): 4 bytes [0 bytes dynamic allocation]
+ * - CallbackMonotonicTimestampNanoseconds (std::uint64_t): 8 bytes [0 bytes dynamic allocation]
+ * - ExtendedWiFiTimestampMicroseconds (std::uint64_t): 8 bytes [0 bytes dynamic allocation]
+ * - ObservedCallbackLagMicroseconds (std::int64_t): 8 bytes [0 bytes dynamic allocation]
+ * - SelectedAlignmentMicroseconds (std::int64_t): 8 bytes [0 bytes dynamic allocation]
+ * - MappedMonotonicTimestampNanoseconds (std::uint64_t): 8 bytes [0 bytes dynamic allocation]
+ * Total Memory: 64 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 struct Raw80211ReceiveTimestampStatistics final {
     std::uint64_t SampleNumber{0U};
     std::uint32_t AlignmentResetCount{0U};
@@ -99,6 +128,50 @@ struct Raw80211ReceiveTimestampStatistics final {
 /// callback-lag alignment is then frozen until a driver timestamp discontinuity or provider restart. This deliberately
 /// avoids the old rolling-minimum mapping whose epoch could move throughout a clock-synchronization session.
 /// </remarks>
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 8 bytes [0 bytes dynamic allocation]
+ * Members:
+ * - _configuration (Raw80211RadioConfiguration): 2 bytes known/aligned storage + sizeof(wifi_interface_t) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * - _receiver (Radio::IRadioReceiver*): 4 bytes [0 bytes dynamic allocation]
+ * - _controlReceiver (Radio::IRadioReceiver*): 4 bytes [0 bytes dynamic allocation]
+ * - _workSignal (std::atomic<Radio::IRadioWorkSignal*>): 4 bytes [0 bytes dynamic allocation]
+ * - _controlWorkSignal (std::atomic<Radio::IRadioWorkSignal*>): 4 bytes [0 bytes dynamic allocation]
+ * - _ingressClassifier (std::atomic<Radio::IRadioIngressClassifier*>): 4 bytes [0 bytes dynamic allocation]
+ * - _observers (Radio::RadioObserverSubscriptions): 8 bytes [_dispatcher: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 52 bytes; _dispatcher: pointee: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; _dispatcher: pointee: Observable: _registrations: Capacity * (12 bytes) element storage; _dispatcher: pointee: Observable: _bindings: Capacity * (12 bytes) element storage]
+ * - _localAddress (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
+ * - _receiveQueue (ReceiveQueue): 12 bytes [Capacity * (368 bytes) element storage]
+ * - _controlReceiveQueue (ReceiveQueue): 12 bytes [Capacity * (368 bytes) element storage]
+ * - _writeIndex (std::atomic<uint8_t>): 1 bytes [0 bytes dynamic allocation]
+ * - _readIndex (std::atomic<uint8_t>): 1 bytes [0 bytes dynamic allocation]
+ * - _controlWriteIndex (std::atomic<uint8_t>): 1 bytes [0 bytes dynamic allocation]
+ * - _controlReadIndex (std::atomic<uint8_t>): 1 bytes [0 bytes dynamic allocation]
+ * - _standardAcceptedPackets (std::atomic<std::uint32_t>): 4 bytes [0 bytes dynamic allocation]
+ * - _standardDroppedPackets (std::atomic<std::uint32_t>): 4 bytes [0 bytes dynamic allocation]
+ * - _standardHighWatermark (std::atomic<std::uint32_t>): 4 bytes [0 bytes dynamic allocation]
+ * - _controlAcceptedPackets (std::atomic<std::uint32_t>): 4 bytes [0 bytes dynamic allocation]
+ * - _controlDroppedPackets (std::atomic<std::uint32_t>): 4 bytes [0 bytes dynamic allocation]
+ * - _controlHighWatermark (std::atomic<std::uint32_t>): 4 bytes [0 bytes dynamic allocation]
+ * - _started (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
+ * - _promiscuousWasEnabled (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _phyRegistered (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _leanWiFiBootstrap (Raw80211WiFiBootstrap): 8 bytes [0 bytes dynamic allocation]
+ * - _hasReceiveTimestampAlignment (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _receiveTimestampAlignmentFrozen (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _lastWiFiReceiveTimestampMicroseconds (uint32_t): 4 bytes [0 bytes dynamic allocation]
+ * - _extendedWiFiReceiveTimestampMicroseconds (uint64_t): 8 bytes [0 bytes dynamic allocation]
+ * - _selectedReceiveAlignmentMicroseconds (int64_t): 8 bytes [0 bytes dynamic allocation]
+ * - _receiveTimestampAlignmentCount (uint32_t): 4 bytes [0 bytes dynamic allocation]
+ * - _receiveTimestampAlignmentResetCount (uint32_t): 4 bytes [0 bytes dynamic allocation]
+ * - _receiveTimestampSampleNumber (uint64_t): 8 bytes [0 bytes dynamic allocation]
+ * - _timestampStatisticsMutex (System::Synchronization::Mutex): 20 bytes [_owned: owned object: 4 bytes; _fallback: _mutex: native synchronization state may allocate platform resources lazily]
+ * - _lastStandardTimestampStatistics (Raw80211ReceiveTimestampStatistics): 64 bytes [0 bytes dynamic allocation]
+ * - _lastControlTimestampStatistics (Raw80211ReceiveTimestampStatistics): 64 bytes [0 bytes dynamic allocation]
+ * Total Memory: 300 bytes known/aligned storage + 2 bytes known/aligned storage + sizeof(wifi_interface_t) (target/toolchain dependent) [_observers: _dispatcher: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 52 bytes; _observers: _dispatcher: pointee: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; _observers: _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; _observers: _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; _observers: _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; _observers: _dispatcher: pointee: Observable: _registrations: Capacity * (12 bytes) element storage; _observers: _dispatcher: pointee: Observable: _bindings: Capacity * (12 bytes) element storage; _receiveQueue: Capacity * (368 bytes) element storage; _controlReceiveQueue: Capacity * (368 bytes) element storage; _timestampStatisticsMutex: _owned: owned object: 4 bytes; _timestampStatisticsMutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 class Raw80211Radio final : public Radio::IRadio, public Radio::IRadioPrioritizedIngress {
 private:
     static constexpr std::size_t MacBytes = 6;
@@ -120,11 +193,33 @@ private:
     static_assert(ESPRESSIO_ESP32_RAW_RADIO_CONTROL_RX_QUEUE_DEPTH <= 255,
                   "Raw radio control RX queue depth must fit its indices");
 
-    struct TimestampMapping final {
+        /**
+     * ESPressio Memory Audit
+     * Members:
+     * - Statistics (Raw80211ReceiveTimestampStatistics): 64 bytes [0 bytes dynamic allocation]
+     * Total Memory: 64 bytes [0 bytes dynamic allocation]
+     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+     * End ESPressio Memory Audit
+     */
+struct TimestampMapping final {
         Raw80211ReceiveTimestampStatistics Statistics{};
     };
 
-    struct ReceivedPacket {
+        /**
+     * ESPressio Memory Audit
+     * Members:
+     * - Source (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
+     * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
+     * - Length (uint16_t): 2 bytes [0 bytes dynamic allocation]
+     * - RssiDbm (int16_t): 2 bytes [0 bytes dynamic allocation]
+     * - TimestampNanoseconds (uint64_t): 8 bytes [0 bytes dynamic allocation]
+     * - TimestampEvidence (Raw80211ReceiveTimestampStatistics): 64 bytes [0 bytes dynamic allocation]
+     * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 270 bytes [0 bytes dynamic allocation]
+     * Total Memory: 368 bytes [0 bytes dynamic allocation]
+     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+     * End ESPressio Memory Audit
+     */
+struct ReceivedPacket {
         Radio::RadioAddress Source{};
         Radio::RadioAddress Destination{};
         uint16_t Length = 0;

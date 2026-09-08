@@ -4,6 +4,16 @@
 #include <SD.h>
 #include <SPI.h>
 namespace ESPressio::Persistence {
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 16 bytes [0 bytes dynamic allocation]
+ * Members:
+ * - _chipSelectPin (uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - _frequency (uint32_t): 4 bytes [0 bytes dynamic allocation]
+ * Total Memory: 24 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 class SDStorage final : public FileStorageBase {
 public:
     explicit SDStorage(uint8_t chipSelectPin = SS, uint32_t frequency = 4000000U)

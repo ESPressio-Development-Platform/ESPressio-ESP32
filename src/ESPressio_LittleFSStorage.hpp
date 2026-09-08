@@ -3,6 +3,15 @@
 #include "ESPressio_FileStorageBase.hpp"
 #include <LittleFS.h>
 namespace ESPressio::Persistence {
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 16 bytes [0 bytes dynamic allocation]
+ * Members:
+ * - _formatOnFailure (bool): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 20 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 class LittleFSStorage final : public FileStorageBase {
 public:
     explicit LittleFSStorage(bool formatOnFailure = false)

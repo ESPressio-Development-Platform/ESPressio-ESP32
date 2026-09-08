@@ -53,6 +53,33 @@ inline uint16_t ESP32ReadNetworkUInt16(const uint8_t* data) noexcept {
 
 } // namespace Detail
 
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
+ * Members:
+ * - _mutex (std::mutex): 4 bytes [native synchronization state may allocate platform resources lazily]
+ * - _client (esp_websocket_client_handle_t): 4 bytes [0 bytes dynamic allocation]
+ * - _sink (IWebSocketClientPlatformSink*): 4 bytes [0 bytes dynamic allocation]
+ * - _connection (std::shared_ptr<ClientConnection>): 8 bytes [shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes]
+ * - _connected (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _disconnecting (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _disconnectNotified (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _eventTask (TaskHandle_t): 4 bytes [0 bytes dynamic allocation]
+ * - _sendTimeoutTicks (TickType_t): 4 bytes [0 bytes dynamic allocation]
+ * - _serverCa (NativeCredential): 16 bytes [Bytes: Capacity * (1 bytes) element storage]
+ * - _clientCertificate (NativeCredential): 16 bytes [Bytes: Capacity * (1 bytes) element storage]
+ * - _clientPrivateKey (NativeCredential): 16 bytes [Bytes: Capacity * (1 bytes) element storage]
+ * - _incomingFrame (ByteBuffer): 12 bytes [Capacity * (1 bytes) element storage]
+ * - _incomingOpcode (uint8_t): 1 bytes [0 bytes dynamic allocation]
+ * - _requestedCloseCode (uint16_t): 2 bytes [0 bytes dynamic allocation]
+ * - _requestedCloseReason (WorkingString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - _peerCloseCode (uint16_t): 2 bytes [0 bytes dynamic allocation]
+ * - _peerCloseReason (WorkingString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Total Memory: 152 bytes [_mutex: native synchronization state may allocate platform resources lazily; _connection: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; _serverCa: Bytes: Capacity * (1 bytes) element storage; _clientCertificate: Bytes: Capacity * (1 bytes) element storage; _clientPrivateKey: Bytes: Capacity * (1 bytes) element storage; _incomingFrame: Capacity * (1 bytes) element storage; _requestedCloseReason: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _peerCloseReason: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 class ESP32WebSocketClientPlatform final : public IWebSocketClientPlatform {
 private:
     using WorkingString = System::Memory::String<
@@ -63,7 +90,17 @@ private:
         System::Memory::MemoryPolicy::ExternalPreferred
     >;
 
-    struct NativeCredential final {
+        /**
+     * ESPressio Memory Audit
+     * Members:
+     * - Bytes (ByteBuffer): 12 bytes [Capacity * (1 bytes) element storage]
+     * - Encoding (WebCredentialEncoding): 1 bytes [0 bytes dynamic allocation]
+     * Total Memory: 16 bytes [Bytes: Capacity * (1 bytes) element storage]
+     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+     * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+     * End ESPressio Memory Audit
+     */
+struct NativeCredential final {
         ByteBuffer Bytes;
         WebCredentialEncoding Encoding = WebCredentialEncoding::Pem;
 
@@ -112,7 +149,18 @@ private:
         }
     };
 
-    class ClientConnection final : public IWebSocketConnection {
+        /**
+     * ESPressio Memory Audit
+     * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
+     * Members:
+     * - _owner (ESP32WebSocketClientPlatform&): 4 bytes [0 bytes dynamic allocation]
+     * - _id (WebSocketConnectionId): 8 bytes [0 bytes dynamic allocation]
+     * - _open (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
+     * Total Memory: 20 bytes [0 bytes dynamic allocation]
+     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+     * End ESPressio Memory Audit
+     */
+class ClientConnection final : public IWebSocketConnection {
     public:
         ClientConnection(ESP32WebSocketClientPlatform& owner, WebSocketConnectionId id)
             : _owner(owner), _id(id) {}

@@ -15,9 +15,31 @@
 
 namespace ESPressio::ESP32Platform {
 
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
+ * Members: none; polymorphic/virtual-base object metadata is included in the total.
+ * Total Memory: 4 bytes [0 bytes dynamic allocation]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 class IDFGPIOController final : public System::GPIO::IController {
 private:
-    class Interrupt final : public System::GPIO::IInterrupt {
+        /**
+     * ESPressio Memory Audit
+     * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
+     * Members:
+     * - _pin (System::GPIO::Pin): 2 bytes [0 bytes dynamic allocation]
+     * - _affinity (System::ProcessorAffinity): 2 bytes [0 bytes dynamic allocation]
+     * - _callback (System::GPIO::InterruptCallback): 4 bytes [0 bytes dynamic allocation]
+     * - _context (void*): 4 bytes [0 bytes dynamic allocation]
+     * - _enabled (bool): 1 bytes [0 bytes dynamic allocation]
+     * - _registered (bool): 1 bytes [0 bytes dynamic allocation]
+     * Total Memory: 20 bytes [0 bytes dynamic allocation]
+     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+     * End ESPressio Memory Audit
+     */
+class Interrupt final : public System::GPIO::IInterrupt {
         System::GPIO::Pin _pin;
         System::ProcessorAffinity _affinity;
         System::GPIO::InterruptCallback _callback;
@@ -83,7 +105,17 @@ private:
         }
     };
 
-    struct InstallContext {
+        /**
+     * ESPressio Memory Audit
+     * Members:
+     * - Completed (SemaphoreHandle_t): 4 bytes [0 bytes dynamic allocation]
+     * - Result (esp_err_t): 4 bytes [0 bytes dynamic allocation]
+     * Total Memory: 8 bytes [0 bytes dynamic allocation]
+     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+     * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+     * End ESPressio Memory Audit
+     */
+struct InstallContext {
         SemaphoreHandle_t Completed = nullptr;
         esp_err_t Result = ESP_FAIL;
     };

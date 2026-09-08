@@ -5,6 +5,19 @@
 #include <cstring>
 #include <string>
 namespace ESPressio::Persistence {
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
+ * Members:
+ * - _preferences (Preferences): sizeof(Preferences) (target/toolchain dependent) [0 bytes dynamic allocation]
+ * - _namespace (std::string): 24 bytes [Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - _readOnly (bool): 1 bytes [0 bytes dynamic allocation]
+ * - _ready (bool): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 30 bytes known/aligned storage + sizeof(Preferences) (target/toolchain dependent) [_namespace: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 class PreferencesStorage final : public IKeyValueStorage {
 public:
     static constexpr std::size_t MaximumNamespaceLength = 15;
