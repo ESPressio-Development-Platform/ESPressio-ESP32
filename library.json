@@ -17,22 +17,22 @@
     },
     {
       "name":"ESPressio-Radio",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Radio.git#structural_realignment_propagation_ESPressio-Mesh",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Radio.git#primitives_redesign",
       "platforms":"*"
     },
     {
       "name":"ESPressio-Mesh",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Mesh.git#structural_realignment_propagation",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Mesh.git#primitives_redesign",
       "platforms":"*"
     },
     {
       "name":"ESPressio-WiFi",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#structural_realignment",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-WiFi.git#primitives_redesign",
       "platforms":"espressif32"
     },
     {
       "name":"ESPressio-Persistence",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#structural_realignment",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#primitives_redesign",
       "platforms":"espressif32"
     }
   ]
