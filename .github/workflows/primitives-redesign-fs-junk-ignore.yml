@@ -1,0 +1,34 @@
+name: Temporary Filesystem Junk Ignore Update
+on:
+  push:
+    branches: [primitives_redesign]
+permissions:
+  contents: write
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: primitives_redesign, fetch-depth: 0}
+      - name: Add and verify missing filesystem metadata ignores
+        shell: python
+        run: |
+          from pathlib import Path
+          path=Path('.gitignore'); text=path.read_text(encoding='utf-8')
+          existing={line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith('#')}
+          groups=[('# macOS',['*.DS_Store','.AppleDouble','.LSOverride','._*','.Spotlight-V100/','.Trashes/','.fseventsd/','.DocumentRevisions-V100/','.TemporaryItems/','.VolumeIcon.icns','.com.apple.timemachine.donotpresent','.AppleDB','.AppleDesktop','Network Trash Folder/','Temporary Items/','.apdisk']),('# Windows',['Thumbs.db','Thumbs.db:encryptable','ehthumbs.db','ehthumbs_vista.db','Desktop.ini','$RECYCLE.BIN/','System Volume Information/','*.stackdump']),('# Linux / freedesktop',['.directory','.Trash-*/','.nfs*','.fuse_hidden*'])]
+          sections=[]; required=[]
+          for heading,patterns in groups:
+              required += patterns; missing=[p for p in patterns if p not in existing]
+              if missing: sections.append(heading+'\n'+'\n'.join(missing))
+          if sections: path.write_text(text.rstrip()+'\n\n# Cross-platform filesystem metadata\n'+'\n\n'.join(sections)+'\n',encoding='utf-8')
+          lines={line.strip() for line in path.read_text(encoding='utf-8').splitlines()}; missing=[p for p in required if p not in lines]; assert not missing, f'Missing ignore patterns: {missing}'
+      - name: Commit and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/primitives-redesign-fs-junk-ignore.yml
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .gitignore .github/workflows/primitives-redesign-fs-junk-ignore.yml
+          git commit -m 'chore: ignore cross-platform filesystem metadata'
+          git push origin HEAD:primitives_redesign
