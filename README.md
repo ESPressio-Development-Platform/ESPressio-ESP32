@@ -32,7 +32,7 @@ ESPressio-ESP32
     -> ESPressio-Persistence (contracts only)
 ```
 
-During the release restructuring, consume ESPressio dependencies from their `main` branches until the new platform-wide 1.0.0 release generation is published.
+During the release restructuring, consume ESPressio dependencies from their `main` branches until the new platform-wide release generation is published.
 
 ## Installing the System providers
 
@@ -299,5 +299,3 @@ This prevents ESPressio-System from becoming a catch-all while preventing every 
 - Radio/WiFi/Persistence dependencies are present because this repository implements those domain contracts.
 - `BLERadio` is exposed when the target SDK configuration enables BLE with the Bluedroid host.
 - Arduino-specific adapters are exposed only when compiling with the Arduino framework.
-
-`PLATFORM_ABSTRACTIONS.md` records the abstraction tranche in detail. See `OPTIMISATIONS.md` for memory-provider implementation history and `CHANGELOG.md` for release-facing changes.
