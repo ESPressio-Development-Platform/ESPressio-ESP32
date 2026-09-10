@@ -2,8 +2,6 @@
 
 ESP32-specific implementations of ESPressio hardware/runtime abstractions and applicable higher-level platform contracts.
 
-**Release target:** `0.1.0`
-
 ESPressio-ESP32 is the concrete platform layer beneath portable ESPressio libraries. ESP-IDF, Arduino-ESP32 and FreeRTOS APIs belong here when they are used to satisfy an abstraction owned by ESPressio-System or a higher-level domain library.
 
 The repository name supplies the platform context. Concrete capability names inside this package therefore do **not** redundantly repeat `ESP32`; where two implementation APIs coexist, the API is used as the discriminator instead, such as `IDFGPIOController` and `ArduinoGPIOController`.
