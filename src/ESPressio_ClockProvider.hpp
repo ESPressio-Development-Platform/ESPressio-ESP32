@@ -36,14 +36,7 @@ inline System::PlatformResult PlatformResultFromEspError(esp_err_t error) noexce
     return System::PlatformResult::Failed(status, static_cast<int32_t>(error));
 }
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members: none; polymorphic/virtual-base object metadata is included in the total.
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class MonotonicClock final : public System::Clock::IMonotonicClock {
 public:
     uint64_t NowNanoseconds() const noexcept override {
@@ -56,19 +49,7 @@ public:
 
 #if ESPRESSIO_ESP32_HAS_GPTIMER
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _timer (gptimer_handle_t): 4 bytes [0 bytes dynamic allocation]
- * - _resolutionHz (uint64_t): 8 bytes [0 bytes dynamic allocation]
- * - _initializationResult (System::PlatformResult): 8 bytes [0 bytes dynamic allocation]
- * - _enabled (bool): 1 bytes [0 bytes dynamic allocation]
- * - _running (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 28 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class HighResolutionCounter final : public System::Clock::IHighResolutionCounter {
 private:
     gptimer_handle_t _timer = nullptr;
@@ -163,14 +144,7 @@ public:
 
 #endif
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members: none; polymorphic/virtual-base object metadata is included in the total.
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class HighResolutionCounterProvider final : public System::Clock::IHighResolutionCounterProvider {
 public:
     std::unique_ptr<System::Clock::IHighResolutionCounter> Create(

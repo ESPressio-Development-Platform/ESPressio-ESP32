@@ -11,32 +11,11 @@
 
 namespace ESPressio::Persistence {
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _fs (fs::FS&): 4 bytes [0 bytes dynamic allocation]
- * - _ready (bool): 1 bytes [0 bytes dynamic allocation]
- * - _additionalCapabilities (StorageCapability): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 16 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class FileStorageBase : public IFileStorage {
 private:
     /// <summary>Owns one Arduino filesystem handle for sequential reads until the caller releases the stream.</summary>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _file (fs::File): sizeof(fs::File) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - _size (uint64_t): 8 bytes [0 bytes dynamic allocation]
- * - _position (uint64_t): 8 bytes [0 bytes dynamic allocation]
- * Total Memory: 20 bytes known/aligned storage + sizeof(fs::File) (target/toolchain dependent) [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class FileReadStream final : public IFileReadStream {
     public:
         explicit FileReadStream(fs::File file)

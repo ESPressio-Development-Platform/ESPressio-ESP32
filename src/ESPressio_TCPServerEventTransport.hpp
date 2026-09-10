@@ -18,53 +18,19 @@
 
 namespace ESPressio::Sockets {
 
-/**
- * ESPressio Memory Audit
- * Members:
- * - Port (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - MaximumClients (std::size_t): 4 bytes [0 bytes dynamic allocation]
- * - Worker (SocketWorkerConfig): 16 bytes [0 bytes dynamic allocation]
- * Total Memory: 24 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 struct TCPServerEventTransportConfig {
     uint16_t Port = 0;
     std::size_t MaximumClients = ESPRESSIO_SOCKETS_MAX_TCP_CLIENTS;
     SocketWorkerConfig Worker;
 };
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 40 bytes [SocketWorker: _observable: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 96 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: _registrations: Capacity * (12 bytes) element storage; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: _bindings: Capacity * (12 bytes) element storage; SocketWorker: _observable: pointee: ThreadSafeObservable: _mutex: _owned: owned object: 4 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: _mutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily; SocketWorker: _observable: pointee: ThreadSafeObservable: _notificationMutex: _owned: owned object: 4 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: _notificationMutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily]
- * Members:
- * - _server (std::unique_ptr<WiFiServer>): 4 bytes [owned object: sizeof(WiFiServer) (target/toolchain dependent)]
- * - _clients (std::array<ClientState, ESPRESSIO_SOCKETS_MAX_TCP_CLIENTS>): ESPRESSIO_SOCKETS_MAX_TCP_CLIENTS * (13 bytes known/aligned storage + sizeof(WiFiClient) (target/toolchain dependent)) [elements: Decoder: _buffer: Capacity * (1 bytes) element storage]
- * - _config (TCPServerEventTransportConfig): 24 bytes [0 bytes dynamic allocation]
- * - _receiver (Event::IEventTransportReceiver*): 4 bytes [0 bytes dynamic allocation]
- * - _clientsMutex (std::mutex): 4 bytes [native synchronization state may allocate platform resources lazily]
- * - _receiverMutex (std::mutex): 4 bytes [native synchronization state may allocate platform resources lazily]
- * - _initialized (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 81 bytes known/aligned storage + ESPRESSIO_SOCKETS_MAX_TCP_CLIENTS * (13 bytes known/aligned storage + sizeof(WiFiClient) (target/toolchain dependent)) [SocketWorker: _observable: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 96 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: _registrations: Capacity * (12 bytes) element storage; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: _bindings: Capacity * (12 bytes) element storage; SocketWorker: _observable: pointee: ThreadSafeObservable: _mutex: _owned: owned object: 4 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: _mutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily; SocketWorker: _observable: pointee: ThreadSafeObservable: _notificationMutex: _owned: owned object: 4 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: _notificationMutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily; _server: owned object: sizeof(WiFiServer) (target/toolchain dependent); _clients: elements: Decoder: _buffer: Capacity * (1 bytes) element storage; _clientsMutex: native synchronization state may allocate platform resources lazily; _receiverMutex: native synchronization state may allocate platform resources lazily]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class TCPServerEventTransport final :
     public Event::IEventTransport,
     private SocketWorker {
 private:
-/**
- * ESPressio Memory Audit
- * Members:
- * - Client (WiFiClient): sizeof(WiFiClient) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - Decoder (SocketEventFrameDecoder): 12 bytes [_buffer: Capacity * (1 bytes) element storage]
- * - Active (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 13 bytes known/aligned storage + sizeof(WiFiClient) (target/toolchain dependent) [Decoder: _buffer: Capacity * (1 bytes) element storage]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 struct ClientState {
         WiFiClient Client;
         SocketEventFrameDecoder Decoder;

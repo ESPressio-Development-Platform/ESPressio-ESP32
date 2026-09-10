@@ -19,31 +19,7 @@
 namespace ESPressio::ESP32Platform {
 
 /// <summary>Snapshot of allocation traffic and active automatic-allocation placement policy.</summary>
-/**
- * ESPressio Memory Audit
- * Members:
- * - AutomaticRequests (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - AutomaticBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - AutomaticExternalSuccesses (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - AutomaticExternalBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - AutomaticExternalFallbacks (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - AutomaticExternalFallbackBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - InternalRequests (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - InternalBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - ExternalRequiredRequests (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - ExternalRequiredBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - ExternalPreferredRequests (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - ExternalPreferredBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - ExternalPreferredExternalSuccesses (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - ExternalPreferredExternalBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - ExternalPreferredInternalFallbacks (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - ExternalPreferredInternalFallbackBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - AutomaticExternalPreferenceThresholdBytes (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - AutomaticExternalPreferenceEnabled (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 72 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 struct MemoryProviderStatistics {
     uint32_t AutomaticRequests{0};
     uint32_t AutomaticBytes{0};
@@ -66,32 +42,7 @@ struct MemoryProviderStatistics {
 };
 
 /// <summary>ESP32 implementation of ESPressio System policy-aware memory allocation.</summary>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _automaticRequests (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _automaticBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _automaticExternalSuccesses (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _automaticExternalBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _automaticExternalFallbacks (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _automaticExternalFallbackBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _internalRequests (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _internalBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _externalRequiredRequests (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _externalRequiredBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _externalPreferredRequests (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _externalPreferredBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _externalPreferredExternalSuccesses (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _externalPreferredExternalBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _externalPreferredInternalFallbacks (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _externalPreferredInternalFallbackBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _automaticExternalPreferenceThresholdBytes (std::atomic<uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * - _automaticExternalPreferenceEnabled (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 76 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class MemoryProvider final : public System::Memory::IMemoryProvider {
 public:
     void* Allocate(std::size_t bytes, std::size_t alignment, System::Memory::MemoryPolicy policy) override {

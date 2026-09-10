@@ -23,33 +23,7 @@
 
 namespace ESPressio::Sockets {
 
-/**
- * ESPressio Memory Audit
- * Members:
- * - Host (std::string): 24 bytes [Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - Port (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - ClientID (std::string): 24 bytes [Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - Username (std::string): 24 bytes [Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - Password (std::string): 24 bytes [Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - OutboundTopic (std::string): 24 bytes [Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - InboundTopic (std::string): 24 bytes [Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - SubscribeQoS (uint8_t): 1 bytes [0 bytes dynamic allocation]
- * - RetainOutbound (bool): 1 bytes [0 bytes dynamic allocation]
- * - Secure (bool): 1 bytes [0 bytes dynamic allocation]
- * - Insecure (bool): 1 bytes [0 bytes dynamic allocation]
- * - CACertificate (char*): 4 bytes [0 bytes dynamic allocation]
- * - ClientCertificate (char*): 4 bytes [0 bytes dynamic allocation]
- * - ClientPrivateKey (char*): 4 bytes [0 bytes dynamic allocation]
- * - BufferSize (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - KeepAliveSeconds (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - SocketTimeoutSeconds (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - ReconnectIntervalMilliseconds (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - Worker (SocketWorkerConfig): 16 bytes [0 bytes dynamic allocation]
- * Total Memory: 192 bytes [Host: Capacity + 1 bytes when capacity exceeds 15-byte SSO; ClientID: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Username: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Password: Capacity + 1 bytes when capacity exceeds 15-byte SSO; OutboundTopic: Capacity + 1 bytes when capacity exceeds 15-byte SSO; InboundTopic: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 struct MQTTEventTransportConfig {
     std::string Host;
     uint16_t Port = 1883;
@@ -79,24 +53,7 @@ struct MQTTEventTransportConfig {
     SocketWorkerConfig Worker;
 };
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 40 bytes [SocketWorker: _observable: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 96 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: _registrations: Capacity * (12 bytes) element storage; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: _bindings: Capacity * (12 bytes) element storage; SocketWorker: _observable: pointee: ThreadSafeObservable: _mutex: _owned: owned object: 4 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: _mutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily; SocketWorker: _observable: pointee: ThreadSafeObservable: _notificationMutex: _owned: owned object: 4 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: _notificationMutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily]
- * Members:
- * - _plainClient (WiFiClient): sizeof(WiFiClient) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - _secureClient (WiFiClientSecure): sizeof(WiFiClientSecure) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - _mqtt (std::unique_ptr<PubSubClient>): 4 bytes [owned object: sizeof(PubSubClient) (target/toolchain dependent)]
- * - _config (MQTTEventTransportConfig): 192 bytes [Host: Capacity + 1 bytes when capacity exceeds 15-byte SSO; ClientID: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Username: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Password: Capacity + 1 bytes when capacity exceeds 15-byte SSO; OutboundTopic: Capacity + 1 bytes when capacity exceeds 15-byte SSO; InboundTopic: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - _receiver (Event::IEventTransportReceiver*): 4 bytes [0 bytes dynamic allocation]
- * - _mqttMutex (std::mutex): 4 bytes [native synchronization state may allocate platform resources lazily]
- * - _receiverMutex (std::mutex): 4 bytes [native synchronization state may allocate platform resources lazily]
- * - _lastConnectAttempt (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * - _initialized (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 253 bytes known/aligned storage + sizeof(WiFiClient) (target/toolchain dependent) + sizeof(WiFiClientSecure) (target/toolchain dependent) [SocketWorker: _observable: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 96 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: _registrations: Capacity * (12 bytes) element storage; SocketWorker: _observable: pointee: ThreadSafeObservable: Observable: _bindings: Capacity * (12 bytes) element storage; SocketWorker: _observable: pointee: ThreadSafeObservable: _mutex: _owned: owned object: 4 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: _mutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily; SocketWorker: _observable: pointee: ThreadSafeObservable: _notificationMutex: _owned: owned object: 4 bytes; SocketWorker: _observable: pointee: ThreadSafeObservable: _notificationMutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily; _mqtt: owned object: sizeof(PubSubClient) (target/toolchain dependent); _config: Host: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _config: ClientID: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _config: Username: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _config: Password: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _config: OutboundTopic: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _config: InboundTopic: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _mqttMutex: native synchronization state may allocate platform resources lazily; _receiverMutex: native synchronization state may allocate platform resources lazily]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class MQTTEventTransport final :
     public Event::IEventTransport,
     private SocketWorker {

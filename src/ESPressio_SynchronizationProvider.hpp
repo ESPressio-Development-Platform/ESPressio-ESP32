@@ -14,16 +14,7 @@
 
 namespace ESPressio::ESP32Platform {
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _semaphore (SemaphoreHandle_t): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 8 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class BinarySignal final : public System::Synchronization::ISignal {
 private:
     SemaphoreHandle_t _semaphore = nullptr;
@@ -111,16 +102,7 @@ public:
 };
 
 /// <summary>FreeRTOS-backed non-recursive mutex implementation for ESPressio System.</summary>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _semaphore (SemaphoreHandle_t): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 8 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class Mutex final : public System::Synchronization::IMutex {
     SemaphoreHandle_t _semaphore = nullptr;
 public:
@@ -141,16 +123,7 @@ public:
 };
 
 /// <summary>FreeRTOS-backed recursive mutex implementation for ESPressio System.</summary>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _semaphore (SemaphoreHandle_t): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 8 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class RecursiveMutex final : public System::Synchronization::IRecursiveMutex {
     SemaphoreHandle_t _semaphore = nullptr;
 public:
@@ -172,16 +145,7 @@ public:
 
 /// <summary>ESP32 read/write contract implemented with one native FreeRTOS mutex.</summary>
 /// <remarks>Shared and exclusive acquisition intentionally serialize on ESP32. This avoids pthread rwlock state and preserves correctness; true concurrent-reader behaviour can be introduced later behind the same System contract if measurements justify it.</remarks>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _semaphore (SemaphoreHandle_t): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 8 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class ReadWriteLock final : public System::Synchronization::IReadWriteLock {
     SemaphoreHandle_t _semaphore = nullptr;
 public:
@@ -204,14 +168,7 @@ public:
     void UnlockShared() noexcept override { Unlock(); }
 };
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members: none; polymorphic/virtual-base object metadata is included in the total.
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class SynchronizationProvider final : public System::Synchronization::ISynchronizationProvider {
 public:
     std::unique_ptr<System::Synchronization::ISignal> CreateBinarySignal(

@@ -11,29 +11,10 @@
 
 namespace ESPressio::ESP32Platform {
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members: none; polymorphic/virtual-base object metadata is included in the total.
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class ArduinoGPIOController final : public System::GPIO::IController {
 private:
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _pin (System::GPIO::Pin): 2 bytes [0 bytes dynamic allocation]
- * - _callback (System::GPIO::InterruptCallback): 4 bytes [0 bytes dynamic allocation]
- * - _context (void*): 4 bytes [0 bytes dynamic allocation]
- * - _mode (int): 4 bytes [0 bytes dynamic allocation]
- * - _enabled (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 24 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class Interrupt final : public System::GPIO::IInterrupt {
     private:
         System::GPIO::Pin _pin;

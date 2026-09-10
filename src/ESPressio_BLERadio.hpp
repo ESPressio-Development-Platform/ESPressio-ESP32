@@ -43,19 +43,7 @@ namespace ESPressio::ESP32Platform {
 /// namespace used by all peers in the same Radio deployment. The default 0xFFFF value is the Bluetooth SIG testing
 /// identifier and should be replaced with an appropriately assigned identifier for production products.
 /// </remarks>
-/**
- * ESPressio Memory Audit
- * Members:
- * - ManufacturerCompanyIdentifier (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - AdvertisingIntervalMinimum (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - AdvertisingIntervalMaximum (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - ScanInterval (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - ScanWindow (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - TransmissionDwellMilliseconds (uint32_t): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 16 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 struct BLERadioConfiguration {
     /// <summary>Bluetooth SIG company identifier carried by the manufacturer-specific ESPressio Radio advertisement.</summary>
     uint16_t ManufacturerCompanyIdentifier = 0xFFFFu;
@@ -93,39 +81,7 @@ struct BLERadioConfiguration {
 /// clock-synchronization observation would overstate timing quality. A timestamp capability should only be added after
 /// controller/driver-level characterization proves sufficient uncertainty margin for the required sub-millisecond sync.
 /// </remarks>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _configuration (BLERadioConfiguration): 16 bytes [0 bytes dynamic allocation]
- * - _receiver (Radio::IRadioReceiver*): 4 bytes [0 bytes dynamic allocation]
- * - _workSignal (std::atomic<Radio::IRadioWorkSignal*>): 4 bytes [0 bytes dynamic allocation]
- * - _observers (Radio::RadioObserverSubscriptions): 8 bytes [_dispatcher: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 52 bytes; _dispatcher: pointee: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; _dispatcher: pointee: Observable: _registrations: Capacity * (12 bytes) element storage; _dispatcher: pointee: Observable: _bindings: Capacity * (12 bytes) element storage]
- * - _localAddress (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
- * - _receiveQueue (std::array<ReceivedPacket, ESPRESSIO_ESP32_BLE_RADIO_RX_QUEUE_DEPTH>): ESPRESSIO_ESP32_BLE_RADIO_RX_QUEUE_DEPTH * (42 bytes) [0 bytes dynamic allocation]
- * - _receiveWriteIndex (std::atomic<uint8_t>): 1 bytes [0 bytes dynamic allocation]
- * - _receiveReadIndex (std::atomic<uint8_t>): 1 bytes [0 bytes dynamic allocation]
- * - _transmitQueue (std::array<TransmitPacket, ESPRESSIO_ESP32_BLE_RADIO_TX_QUEUE_DEPTH>): ESPRESSIO_ESP32_BLE_RADIO_TX_QUEUE_DEPTH * (30 bytes) [0 bytes dynamic allocation]
- * - _transmitWriteIndex (uint8_t): 1 bytes [0 bytes dynamic allocation]
- * - _transmitReadIndex (uint8_t): 1 bytes [0 bytes dynamic allocation]
- * - _transmitMux (portMUX_TYPE): sizeof(portMUX_TYPE) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - _activeAdvertisement (std::array<uint8_t, AdvertisementBytesMaximum>): 31 bytes [0 bytes dynamic allocation]
- * - _transmitTimer (esp_timer_handle_t): 4 bytes [0 bytes dynamic allocation]
- * - _advertisingParameters (esp_ble_adv_params_t): sizeof(esp_ble_adv_params_t) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - _scanParameters (esp_ble_scan_params_t): sizeof(esp_ble_scan_params_t) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - _started (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
- * - _scanActive (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
- * - _advertisingActive (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
- * - _transmitCycleActive (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
- * - _controllerInitializedByUs (bool): 1 bytes [0 bytes dynamic allocation]
- * - _controllerEnabledByUs (bool): 1 bytes [0 bytes dynamic allocation]
- * - _bluedroidInitializedByUs (bool): 1 bytes [0 bytes dynamic allocation]
- * - _bluedroidEnabledByUs (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 92 bytes known/aligned storage + ESPRESSIO_ESP32_BLE_RADIO_RX_QUEUE_DEPTH * (42 bytes) + ESPRESSIO_ESP32_BLE_RADIO_TX_QUEUE_DEPTH * (30 bytes) + sizeof(portMUX_TYPE) (target/toolchain dependent) + sizeof(esp_ble_adv_params_t) (target/toolchain dependent) + sizeof(esp_ble_scan_params_t) (target/toolchain dependent) [_observers: _dispatcher: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 52 bytes; _observers: _dispatcher: pointee: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; _observers: _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; _observers: _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; _observers: _dispatcher: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; _observers: _dispatcher: pointee: Observable: _registrations: Capacity * (12 bytes) element storage; _observers: _dispatcher: pointee: Observable: _bindings: Capacity * (12 bytes) element storage]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class BLERadio final : public Radio::IRadio {
 private:
     static constexpr std::size_t AddressBytes = 6;
@@ -144,18 +100,7 @@ private:
     static_assert(ESPRESSIO_ESP32_BLE_RADIO_TX_QUEUE_DEPTH > 1, "BLE TX queue depth must be at least two");
     static_assert(ESPRESSIO_ESP32_BLE_RADIO_TX_QUEUE_DEPTH <= 255, "BLE TX queue depth must fit its indices");
 
-/**
- * ESPressio Memory Audit
- * Members:
- * - Source (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
- * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
- * - Length (uint8_t): 1 bytes [0 bytes dynamic allocation]
- * - RssiDbm (int16_t): 2 bytes [0 bytes dynamic allocation]
- * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 20 bytes [0 bytes dynamic allocation]
- * Total Memory: 42 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 struct ReceivedPacket {
         Radio::RadioAddress Source{};
         Radio::RadioAddress Destination{};
@@ -164,16 +109,7 @@ struct ReceivedPacket {
         std::array<uint8_t, MaximumPayloadBytes> Payload{};
     };
 
-/**
- * ESPressio Memory Audit
- * Members:
- * - Destination (Radio::RadioAddress): 9 bytes [0 bytes dynamic allocation]
- * - Length (uint8_t): 1 bytes [0 bytes dynamic allocation]
- * - Payload (std::array<uint8_t, MaximumPayloadBytes>): 20 bytes [0 bytes dynamic allocation]
- * Total Memory: 30 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 struct TransmitPacket {
         Radio::RadioAddress Destination{};
         uint8_t Length = 0;

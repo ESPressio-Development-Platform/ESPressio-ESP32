@@ -16,19 +16,7 @@
 namespace ESPressio::ESP32Platform {
 
 /// <summary>ESP32 FreeRTOS message queue with optional capability-aware backing storage.</summary>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _queue (QueueHandle_t): 4 bytes [0 bytes dynamic allocation]
- * - _elementSize (std::size_t): 4 bytes [0 bytes dynamic allocation]
- * - _capacity (std::size_t): 4 bytes [0 bytes dynamic allocation]
- * - _createdWithCaps (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 20 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class MessageQueue final : public System::Queue::IMessageQueue {
 private:
     QueueHandle_t _queue = nullptr;
@@ -176,14 +164,7 @@ public:
 };
 
 /// <summary>Creates ESP32-backed ESPressio message queues.</summary>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members: none; polymorphic/virtual-base object metadata is included in the total.
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class QueueProvider final : public System::Queue::IQueueProvider {
 public:
     std::unique_ptr<System::Queue::IMessageQueue> Create(

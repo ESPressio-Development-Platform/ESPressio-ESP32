@@ -115,17 +115,7 @@ inline WebError DnsLwipError(err_t error) noexcept {
 
 } // namespace Detail
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _name (std::string_view): 8 bytes [0 bytes dynamic allocation]
- * - _type (DnsRecordType): 2 bytes [0 bytes dynamic allocation]
- * - _class (DnsRecordClass): 2 bytes [0 bytes dynamic allocation]
- * Total Memory: 16 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class ESP32DnsRequestPlatform final : public IDnsRequestPlatform {
 public:
     ESP32DnsRequestPlatform(
@@ -146,22 +136,7 @@ private:
     DnsRecordClass _class;
 };
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _pcb (udp_pcb*): 4 bytes [0 bytes dynamic allocation]
- * - _remoteAddress (ip_addr_t): sizeof(ip_addr_t) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - _remotePort (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - _buffer (Buffer): 12 bytes [Capacity * (1 bytes) element storage]
- * - _answerCount (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - _valid (bool): 1 bytes [0 bytes dynamic allocation]
- * - _completed (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 28 bytes known/aligned storage + sizeof(ip_addr_t) (target/toolchain dependent) [_buffer: Capacity * (1 bytes) element storage]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class ESP32DnsResponsePlatform final : public IDnsResponsePlatform {
 private:
     using Buffer = System::Memory::Vector<
@@ -283,18 +258,7 @@ private:
     bool _completed = false;
 };
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _configuration (DnsServerConfiguration): 8 bytes [0 bytes dynamic allocation]
- * - _dispatcher (std::atomic<IDnsRequestDispatcher*>): 4 bytes [0 bytes dynamic allocation]
- * - _listening (std::atomic<bool>): 1 bytes [0 bytes dynamic allocation]
- * - _pcb (udp_pcb*): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 24 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class ESP32DnsServerPlatform final : public IDnsServerPlatform {
 private:
     using Buffer = System::Memory::Vector<
@@ -302,18 +266,7 @@ private:
         System::Memory::MemoryPolicy::ExternalPreferred
     >;
 
-/**
- * ESPressio Memory Audit
- * Members:
- * - Call (tcpip_api_call_data): sizeof(tcpip_api_call_data) (target/toolchain dependent) [0 bytes dynamic allocation]
- * - Owner (ESP32DnsServerPlatform*): 4 bytes [0 bytes dynamic allocation]
- * - Port (uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - Result (err_t): sizeof(err_t) (target/toolchain dependent) [0 bytes dynamic allocation]
- * Total Memory: 6 bytes known/aligned storage + sizeof(tcpip_api_call_data) (target/toolchain dependent) + sizeof(err_t) (target/toolchain dependent) [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 struct ApiCall final {
         tcpip_api_call_data Call{};
         ESP32DnsServerPlatform* Owner = nullptr;

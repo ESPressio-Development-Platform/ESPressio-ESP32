@@ -8,15 +8,7 @@
 
 namespace ESPressio::ESP32Platform {
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _input (Stream*): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 8 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class ArduinoByteInput final : public System::IO::IByteInput {
 public:
     explicit ArduinoByteInput(Stream& input) noexcept : _input(&input) {}
@@ -43,15 +35,7 @@ private:
     Stream* _input;
 };
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _output (Print*): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 8 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class ArduinoByteOutput final : public System::IO::IByteOutput {
 public:
     explicit ArduinoByteOutput(Print& output) noexcept : _output(&output) {}
@@ -78,15 +62,7 @@ private:
     Print* _output;
 };
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 8 bytes [0 bytes dynamic allocation]
- * Members:
- * - _stream (Stream*): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 12 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class ArduinoByteStream final : public System::IO::IByteStream {
 public:
     explicit ArduinoByteStream(Stream& stream) noexcept : _stream(&stream) {}

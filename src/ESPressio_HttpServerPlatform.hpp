@@ -130,18 +130,7 @@ inline bool CopyHeaderName(
 
 } // namespace Detail
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _request (httpd_req_t&): 4 bytes [0 bytes dynamic allocation]
- * - _path (std::string_view): 8 bytes [0 bytes dynamic allocation]
- * - _query (std::string_view): 8 bytes [0 bytes dynamic allocation]
- * - _bodyRead (std::size_t): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 28 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class ESP32HttpRequestPlatform final : public IHttpRequestPlatform {
 public:
     explicit ESP32HttpRequestPlatform(httpd_req_t& request) noexcept
@@ -295,37 +284,10 @@ private:
     std::size_t _bodyRead = 0;
 };
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _request (httpd_req_t&): 4 bytes [0 bytes dynamic allocation]
- * - _keepAlive (bool): 1 bytes [0 bytes dynamic allocation]
- * - _begun (bool): 1 bytes [0 bytes dynamic allocation]
- * - _completed (bool): 1 bytes [0 bytes dynamic allocation]
- * - _knownLengthFraming (bool): 1 bytes [0 bytes dynamic allocation]
- * - _status (HttpStatus): 2 bytes [0 bytes dynamic allocation]
- * - _expectedLength (std::optional<std::size_t>): 8 bytes [0 bytes dynamic allocation]
- * - _bytesWritten (std::size_t): 4 bytes [0 bytes dynamic allocation]
- * - _contentType (WorkingString): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - _headers (HeaderList): 12 bytes [Capacity * (48 bytes) element storage; N live elements each: Name: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: Value: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Total Memory: 64 bytes [_contentType: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _headers: Capacity * (48 bytes) element storage; _headers: N live elements each: Name: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; _headers: N live elements each: Value: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class ESP32HttpResponsePlatform final : public IHttpResponsePlatform {
 private:
-/**
- * ESPressio Memory Audit
- * Members:
- * - Name (System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred>): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - Value (System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred>): 24 bytes [_value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Total Memory: 48 bytes [Name: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Value: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 struct Header final {
         System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred> Name;
         System::Memory::String<System::Memory::MemoryPolicy::ExternalPreferred> Value;
@@ -535,13 +497,7 @@ private:
 };
 
 #ifdef CONFIG_HTTPD_WS_SUPPORT
-/**
- * ESPressio Memory Audit
- * Members: none; polymorphic/virtual-base object metadata is included in the total.
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class IESP32HttpWebSocketBinding {
 public:
     virtual ~IESP32HttpWebSocketBinding() = default;
@@ -555,21 +511,7 @@ public:
 using ESP32HttpWebSocketBindingPtr = std::shared_ptr<IESP32HttpWebSocketBinding>;
 #endif
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - _mutex (std::mutex): 4 bytes [native synchronization state may allocate platform resources lazily]
- * - _server (httpd_handle_t): 4 bytes [0 bytes dynamic allocation]
- * - _starting (bool): 1 bytes [0 bytes dynamic allocation]
- * - _dispatcher (IHttpRequestDispatcher*): 4 bytes [0 bytes dynamic allocation]
- * - _configuration (HttpServerConfiguration): 20 bytes [0 bytes dynamic allocation]
- * - _webSocketBindings (System::Memory::Vector<ESP32HttpWebSocketBindingPtr, System::Memory::MemoryPolicy::ExternalPreferred>): 12 bytes [Capacity * (8 bytes) element storage; N live elements each: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 4 bytes]
- * Total Memory: 52 bytes [_mutex: native synchronization state may allocate platform resources lazily; _webSocketBindings: Capacity * (8 bytes) element storage; _webSocketBindings: N live elements each: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 4 bytes]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class ESP32HttpServerPlatform final : public IHttpServerPlatform {
 public:
     ESP32HttpServerPlatform() = default;

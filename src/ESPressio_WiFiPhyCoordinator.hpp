@@ -15,28 +15,14 @@
 
 namespace ESPressio::ESP32Platform {
 
-/**
- * ESPressio Memory Audit
- * Underlying storage: 1 bytes
- * Total Memory: 1 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 enum class RawWiFiPhyAccessStatus : uint8_t {
     Available,
     WiFiServiceConflict,
     DriverUnavailable
 };
 
-/**
- * ESPressio Memory Audit
- * Members:
- * - Status (RawWiFiPhyAccessStatus): 1 bytes [0 bytes dynamic allocation]
- * - EffectiveChannel (uint8_t): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 2 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 struct RawWiFiPhyAccess {
     RawWiFiPhyAccessStatus Status = RawWiFiPhyAccessStatus::DriverUnavailable;
     uint8_t EffectiveChannel = 0;
@@ -58,21 +44,7 @@ struct RawWiFiPhyAccess {
 /// polling. In particular, ingress service and Send must not call esp_wifi_get_channel(). This prevents a high-priority
 /// precision worker from repeatedly contending with the same Wi-Fi driver task that delivers its RX timestamp callback.
 /// </remarks>
-/**
- * ESPressio Memory Audit
- * Members:
- * - _mutex (System::Synchronization::Mutex): 20 bytes [_owned: owned object: 4 bytes; _fallback: _mutex: native synchronization state may allocate platform resources lazily]
- * - _wifiServiceActive (bool): 1 bytes [0 bytes dynamic allocation]
- * - _rawRegistered (bool): 1 bytes [0 bytes dynamic allocation]
- * - _precisionReceiveTimestampsRequired (bool): 1 bytes [0 bytes dynamic allocation]
- * - _rawRequestedChannel (uint8_t): 1 bytes [0 bytes dynamic allocation]
- * - _lastKnownChannel (uint8_t): 1 bytes [0 bytes dynamic allocation]
- * - _cachedRawAccess (std::atomic<std::uint32_t>): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 32 bytes [_mutex: _owned: owned object: 4 bytes; _mutex: _fallback: _mutex: native synchronization state may allocate platform resources lazily]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class WiFiPhyCoordinator final {
 public:
     WiFiPhyCoordinator(const WiFiPhyCoordinator&) = delete;
