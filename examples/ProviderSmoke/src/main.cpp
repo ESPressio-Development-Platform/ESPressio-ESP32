@@ -1,73 +1,45 @@
 #include <Arduino.h>
-#include <array>
+#include <sdkconfig.h>
 
 #include <ESPressio_ESP32.hpp>
-#include <ESPressio_MeshMemoryAccounting.hpp>
-
-using MeshCapacityProfile = ESPressio::ESP32Platform::InternalMemoryMeshCapacityProfile<8192U, 16384U>;
-static_assert(MeshCapacityProfile::Identifier == 0x45533332U);
-static_assert(MeshCapacityProfile::InboundDeliveryPool::MaximumBytesPerSlot == 4096U);
-static_assert(MeshCapacityProfile::ControlFramePool::MaximumBytesPerSlot == 512U);
-static_assert(MeshCapacityProfile::ApplicationPayloadPool::MaximumBytesPerSlot == 3584U);
-
-
-struct MeshAccountingTopologyCharacteristics final {
-    std::int16_t SignalDbm{0};
-    std::uint16_t CostHint{0};
-};
-
-struct MeshAccountingClockQuality final { std::uint32_t UncertaintyNanoseconds{0}; };
-
-struct MeshAccountingSecurityAuthority final { std::array<std::uint8_t, 1024> BoundedState{}; };
-using MeshAccounting = ESPressio::Mesh::MeshWholeDeviceMemoryAccounting<
-    MeshAccountingTopologyCharacteristics,
-    MeshAccountingClockQuality,
-    8U,
-    MeshCapacityProfile,
-    MeshAccountingSecurityAuthority
->;
-static_assert(MeshAccounting::RadioReassemblyPayloadBytes == 4U * 4096U);
-static_assert(MeshAccounting::TotalAccountedBytes > MeshAccounting::MeshPrincipalBytes);
-#include <ESPressio_Memory.hpp>
 #include <ESPressio_Radio.hpp>
-#include <ESPressio_Raw80211Radio.hpp>
-#include <ESPressio_Raw80211WiFiBootstrap.hpp>
 
 namespace {
-ESPressio::Radio::RadioTransport radioTransport;
-ESPressio::Radio::RadioWorker radioWorker(radioTransport);
 ESPressio::ESP32Platform::Raw80211Radio rawRadio;
-ESPressio::ESP32Platform::Raw80211WiFiBootstrap leanRawBootstrap;
+#if defined(CONFIG_BT_BLE_ENABLED) && CONFIG_BT_BLE_ENABLED && defined(CONFIG_BT_BLUEDROID_ENABLED) && CONFIG_BT_BLUEDROID_ENABLED
+ESPressio::ESP32Platform::BLERadio bleRadio;
+#endif
 }
 
 void setup() {
-    ESPressio::ESP32Platform::InstallMemoryProvider();
+    ESPressio::ESP32Platform::InstallSystemProviders();
 
-    ESPressio::System::Memory::Vector<
-        int,
-        ESPressio::System::Memory::MemoryPolicy::ExternalPreferred
-    > values;
-    values.push_back(42);
+    const auto rawResources = rawRadio.ProviderResources();
+    const auto rawDomain = rawRadio.ContentionDomain();
+    const auto rawCost = rawRadio.EstimateTransmissionCost(
+        ESPressio::Radio::RadioAddress::Broadcast(6),
+        32,
+        {ESPressio::Radio::RadioServiceClass::BestEffort,
+         ESPressio::Radio::RadioDeadlineTreatment::ExpiryOnly,
+         ESPressio::Radio::RadioDirectLinkEvidenceRequirement::TransmissionCompletion});
 
-    const auto statistics =
-        ESPressio::ESP32Platform::GetMemoryProvider().Statistics();
+    volatile bool rawFiniteIngress = rawResources.HasFiniteIngressService();
+    volatile bool rawDomainValid = static_cast<bool>(rawDomain);
+    volatile bool rawCostValid = rawCost.IsValid();
+    (void)rawFiniteIngress;
+    (void)rawDomainValid;
+    (void)rawCostValid;
 
-    // Compile the worker-owned direct-link inbound path without starting RF in this smoke target.
-    // Route selection is intentionally absent: it belongs to ESPressio-Mesh, not RadioWorker/RadioTransport.
-    const bool interfaceAttached = radioWorker.AddInterface(rawRadio);
-
-    // Compile the explicit Raw-only bootstrap surface. Runtime users call this only when no ordinary WiFi/LwIP
-    // lifecycle will share the driver; shared-WiFi compositions leave Raw80211Radio on its existing join path.
-    const auto bootstrapConfiguration = leanRawBootstrap.Configuration();
-
-    volatile int observed = values.front();
-    volatile uint32_t requests = statistics.ExternalPreferredRequests;
-    volatile bool attached = interfaceAttached;
-    volatile uint8_t staticRxBuffers = bootstrapConfiguration.StaticRxBuffers;
-    (void)observed;
-    (void)requests;
-    (void)attached;
-    (void)staticRxBuffers;
+#if defined(CONFIG_BT_BLE_ENABLED) && CONFIG_BT_BLE_ENABLED && defined(CONFIG_BT_BLUEDROID_ENABLED) && CONFIG_BT_BLUEDROID_ENABLED
+    const auto bleCapabilities = bleRadio.Capabilities();
+    const auto bleResources = bleRadio.ProviderResources();
+    volatile bool bleV3Compatible = bleCapabilities.MaximumPayloadBytes >= 21;
+    volatile bool bleFiniteIngress = bleResources.HasFiniteIngressService();
+    volatile bool bleBroadcast = bleCapabilities.Has(ESPressio::Radio::RadioCapability::Broadcast);
+    (void)bleV3Compatible;
+    (void)bleFiniteIngress;
+    (void)bleBroadcast;
+#endif
 }
 
 void loop() {}

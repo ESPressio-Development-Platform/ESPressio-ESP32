@@ -7,6 +7,7 @@ on:
       - 'feature/**'
       - 'optimisation/**'
       - structural_realignment_propagation_ESPressio-Mesh
+      - primitives_redesign
   pull_request:
 
 jobs:
@@ -19,12 +20,12 @@ jobs:
           python-version: '3.x'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Build provider smoke project
+      - name: Build managed Radio provider smoke project
         working-directory: examples/ProviderSmoke
         shell: bash
         run: |
           set -o pipefail
-          pio run 2>&1 | tee ../../esp32-provider-build.log
+          pio run -e esp32dev 2>&1 | tee ../../esp32-provider-build.log
       - name: Upload compiler log
         if: always()
         uses: actions/upload-artifact@v4
