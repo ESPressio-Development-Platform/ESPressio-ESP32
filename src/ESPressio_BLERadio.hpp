@@ -152,7 +152,7 @@ private:
     bool EnsureBluetoothStack() noexcept {
         auto controllerStatus=esp_bt_controller_get_status();
         if(controllerStatus==ESP_BT_CONTROLLER_STATUS_IDLE){
-            auto configuration=BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+            esp_bt_controller_config_t configuration=BT_CONTROLLER_INIT_CONFIG_DEFAULT();
             if(esp_bt_controller_init(&configuration)!=ESP_OK) return false;
             _controllerInitializedByUs=true;
             controllerStatus=esp_bt_controller_get_status();
