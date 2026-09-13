@@ -1,40 +1,28 @@
 # ESPressio ESP32
 
-ESP32-specific implementations of ESPressio hardware/runtime abstractions and applicable higher-level platform contracts.
+ESP32-specific implementations of ESPressio hardware/runtime abstractions and domain-provider contracts.
 
-ESPressio-ESP32 is the concrete platform layer beneath portable ESPressio libraries. ESP-IDF, Arduino-ESP32 and FreeRTOS APIs belong here when they are used to satisfy an abstraction owned by ESPressio-System or a higher-level domain library.
+`ESPressio-ESP32` is the concrete platform layer beneath portable ESPressio libraries. ESP-IDF, Arduino-ESP32 and FreeRTOS APIs belong here when they satisfy an abstraction owned by ESPressio-System or another ESPressio domain library.
 
-The repository name supplies the platform context. Concrete capability names inside this package therefore do **not** redundantly repeat `ESP32`; where two implementation APIs coexist, the API is used as the discriminator instead, such as `IDFGPIOController` and `ArduinoGPIOController`.
+Portable consumers should depend on the abstraction owner rather than this repository directly. A top-level ESP32 application composes the concrete providers it needs.
 
-## When to use it
+## Coordinated redesign branch
 
-Use ESPressio-ESP32 from a top-level ESP32 application to install concrete providers and compose target-specific implementations required by portable ESPressio code.
+During the Primitive Platform redesign tranche, consume the participating ESPressio repositories from their coordinated `primitives_redesign` branches. No version/tag/main-branch release claim is implied by the tranche implementation.
 
-Higher-level libraries should depend on their abstraction owners, not on ESPressio-ESP32 itself. Generic runtime consumers depend on ESPressio-System; Radio-domain code depends on ESPressio-Radio; WiFi-domain code depends on ESPressio-WiFi; persistence-domain code depends on ESPressio-Persistence. ESPressio-ESP32 supplies the ESP32 implementations.
-
-## Installation during coordinated development
-
-```ini
-lib_deps =
-    https://github.com/ESPressio-Development-Platform/ESPressio-System.git#main
-    https://github.com/ESPressio-Development-Platform/ESPressio-ESP32.git#main
-```
-
-ESPressio-ESP32 currently also consumes the active Radio, WiFi and Persistence contracts because it provides their concrete implementations:
+The relevant dependency direction is:
 
 ```text
 ESPressio-ESP32
     -> ESPressio-System
-    -> ESPressio-Radio       (contract only)
-    -> ESPressio-WiFi        (contract only)
-    -> ESPressio-Persistence (contracts only)
+    -> ESPressio-Radio       (provider contract)
+    -> ESPressio-WiFi        (platform contract)
+    -> ESPressio-Persistence (provider contracts)
 ```
 
-During the release restructuring, consume ESPressio dependencies from their `main` branches until the new platform-wide release generation is published.
+## System providers
 
-## Installing the System providers
-
-The current System provider set can be installed together:
+The normal ESP32 bootstrap can install the current System provider set together:
 
 ```cpp
 #include <ESPressio_ESP32.hpp>
@@ -42,241 +30,187 @@ The current System provider set can be installed together:
 ESPressio::ESP32Platform::InstallSystemProviders();
 ```
 
-This installs:
+This installs the ESP-IDF/FreeRTOS implementations for memory, execution, synchronization, bounded queues, monotonic time, high-resolution counters, GPIO and entropy.
 
-- the ESP-IDF heap-capability memory provider;
-- the FreeRTOS execution provider;
-- the FreeRTOS binary-signal provider;
-- the FreeRTOS bounded-message-queue provider;
-- the `esp_timer` monotonic clock;
-- the GPTimer high-resolution counter provider;
-- the ESP-IDF GPIO controller;
-- the hardware entropy source.
+Individual providers may be installed independently when composition requires explicit ownership.
 
-Individual providers can also be installed independently when the application needs explicit control.
+### Memory
 
-## Memory provider
-
-```cpp
-ESPressio::ESP32Platform::InstallMemoryProvider();
-```
+`InstallMemoryProvider()` installs the ESP-IDF heap-capability provider.
 
 | System policy | ESP32 allocation |
 | --- | --- |
-| `Automatic` | General `MALLOC_CAP_8BIT` heap. |
-| `Internal` | `MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`. |
-| `ExternalPreferred` | PSRAM first, then internal 8-bit memory if external allocation fails. |
-| `ExternalRequired` | PSRAM only. |
+| `Automatic` | general `MALLOC_CAP_8BIT` heap |
+| `Internal` | `MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT` |
+| `ExternalPreferred` | PSRAM first, then internal 8-bit memory |
+| `ExternalRequired` | PSRAM only |
 
-On devices without PSRAM, `ExternalPreferred` remains portable by falling back internally while `ExternalRequired` remains strict.
+Allocator-aware ESPressio objects retain the provider active when their allocators are constructed, so install the memory provider before creating such global objects.
 
-System allocators capture the active memory provider when constructed. Install the provider before allocator-aware global ESPressio objects are created, or construct those objects explicitly after platform bootstrap.
+### Execution, synchronization and queues
 
-Runtime allocation statistics are available through:
+`ExecutionProvider` maps the System execution contract to FreeRTOS tasks, including joinable execution, processor affinity, processor-count discovery, stack telemetry, sleep and yield.
 
-```cpp
-ESPressio::ESP32Platform::GetMemoryProvider().Statistics();
-```
+`SynchronizationProvider` supplies System signals using FreeRTOS primitives, including ISR-safe signalling. `QueueProvider` supplies bounded message queues without exposing FreeRTOS handles to portable libraries.
 
-## Execution, synchronization and queues
+### Clock and GPIO
 
-`ExecutionProvider` maps the System execution contract onto FreeRTOS tasks. It provides task creation/destruction, suspend/resume, current-task identity, stack high-water telemetry, processor-count discovery, sleep/yield and processor affinity.
+`MonotonicClock` maps `IMonotonicClock` to `esp_timer_get_time()`. `HighResolutionCounterProvider` uses ESP-IDF GPTimer.
 
-Native `TaskHandle_t` values do not leave this provider; callers see opaque System execution handles.
+Both ESP-IDF and Arduino GPIO implementations are available. The ESP-IDF controller is the default System-provider path and supports explicit interrupt ownership/affinity semantics; the Arduino controller intentionally reports unsupported affinity where Arduino cannot guarantee it.
 
-`SynchronizationProvider` supplies binary System signals using FreeRTOS semaphores, including ISR-context signalling.
+### Entropy
 
-`QueueProvider` supplies bounded message queues using FreeRTOS queues, including callback/ISR-safe enqueue. Higher-level libraries can therefore use deterministic queueing without exposing `QueueHandle_t`, `TickType_t` or related RTOS types.
-
-## Clock providers
-
-`MonotonicClock` maps `IMonotonicClock` to `esp_timer_get_time()` and exposes nanosecond-form timestamps.
-
-`HighResolutionCounterProvider` creates dedicated counters backed by ESP-IDF GPTimer. Higher-level libraries therefore do not need to expose `gptimer_handle_t`, `esp_err_t` or GPTimer driver headers.
-
-Native ESP-IDF results are translated into `System::PlatformResult`; the original numeric error code is retained only as optional diagnostic information.
-
-## GPIO
-
-Two concrete GPIO implementations are provided.
-
-### ESP-IDF GPIO provider
-
-The default `InstallSystemProviders()` path installs `IDFGPIOController`, which maps System GPIO configuration/read/write operations directly to ESP-IDF GPIO facilities.
-
-Interrupt creation returns a System `InterruptCreationResult` containing both an explicit status and a move-only RAII handle. Destroying/resetting the handle removes the registered ISR handler. The handle can also be enabled and disabled while retained.
-
-Specific CPU/core affinity is supported as a request:
-
-```cpp
-using namespace ESPressio::System;
-using namespace ESPressio::System::GPIO;
-
-InterruptConfiguration interruptConfig;
-interruptConfig.Trigger = InterruptTrigger::RisingEdge;
-interruptConfig.Affinity = ProcessorAffinity::Specific(1);
-
-auto created = ESPressio::ESP32Platform::IDFGPIO().CreateInterrupt(
-    26,
-    interruptConfig,
-    callback,
-    context
-);
-```
-
-ESP-IDF's GPIO ISR service itself is installed on one processor/core. The first registration that establishes the service therefore fixes that service affinity. A later incompatible specific-core request returns `PlatformStatus::Conflict` rather than silently violating the requested affinity.
-
-### Arduino GPIO provider
-
-Arduino-ESP32 applications can intentionally use the Arduino-facing implementation instead:
-
-```cpp
-ESPressio::ESP32Platform::InstallArduinoGPIOController();
-```
-
-It uses Arduino `pinMode`, `digitalRead`, `digitalWrite`, `attachInterruptArg` and `detachInterrupt` while satisfying the same System GPIO contract.
-
-The Arduino provider advertises that specific processor affinity is unsupported. A specific-affinity interrupt request returns `PlatformStatus::Unsupported`; `ProcessorAffinity::Any()` remains valid.
-
-## Hardware entropy
-
-`EntropySource` satisfies `System::Entropy::IEntropySource` using the hardware random generator and advertises cryptographic suitability.
-
-Security therefore consumes platform entropy through System rather than calling target APIs directly:
-
-```cpp
-ESPressio::ESP32Platform::InstallEntropySource();
-```
-
-`InstallSystemProviders()` already includes this source. ESPressio-Security's `RandomSource` then consumes the installed System entropy source without any Security-side ESP32 dependency.
+`EntropySource` satisfies the System entropy contract using the ESP32 hardware random source and advertises cryptographic suitability.
 
 ## Arduino byte-stream adapters
 
-`ESPressio_ArduinoByteStream.hpp` adapts Arduino framework streams without leaking `Stream` or `Print` into reusable libraries:
+`ESPressio_ArduinoByteStream.hpp` adapts Arduino `Stream`/`Print` to System byte-stream contracts without leaking Arduino types into portable Serial/Logging code.
 
 ```cpp
-#include <ESPressio_ArduinoByteStream.hpp>
-
 ESPressio::ESP32Platform::ArduinoByteStream consoleIO(Serial);
 ESPressio::ESP32Platform::ArduinoByteOutput logOutput(Serial);
 ```
 
-The adapters implement `System::IO::IByteInput`, `IByteOutput` and `IByteStream`. Serial-domain parsing, formatting and logging remain in ESPressio-Serial.
-
 ## WiFi platform implementation
 
-The concrete WiFi implementation lives in this repository while the contract and all WiFi-domain policy remain in ESPressio-WiFi:
+`ESPressio_WiFiPlatform.hpp` supplies the ESP32 concrete for the contract owned by `ESPressio-WiFi`. Configuration, reconnect policy, scanning and WiFi-domain lifecycle remain owned by that library; Arduino/ESP-IDF implementation details remain here.
 
-```cpp
-#include <ESPressio_WiFiPlatform.hpp>
+`ESPressio_WiFiRadio.hpp` contains RF-level helpers used by native radio policy/fingerprint code.
 
-ESPressio::WiFi::WiFiPlatform wifiPlatform;
+## Managed Radio providers
+
+ESP32 currently supplies two concrete `ESPressio::Radio::IRadio` providers:
+
+- `Raw80211Radio` for the ESP32 raw IEEE 802.11 bearer;
+- `BLERadio` for legacy non-connectable BLE advertising/scanning.
+
+Both implement the finite managed-provider contract used by the Radio Q1/R3 runtime. Neither owns a `RadioWorker`, application callback graph, Primitive-family transport, Mesh routing engine or a second fragmentation/reassembly layer.
+
+The Radio library owns protected Q1 storage, v3 transfer IDs, fragmentation/reassembly, class/deadline scheduling, provider completion correlation and logical terminal handoff.
+
+### Shared WiFi physical ownership
+
+`WiFiPhyCoordinator` represents the shared ESP32 WiFi physical contention domain. Raw 802.11 readiness follows the coordinator's cached access state, and coordinator changes wake the Radio runtime rather than requiring polling.
+
+Raw80211 and other users of the same ESP32 WiFi PHY must therefore share one physical contention-domain identity. Radio R3 serializes scheduler-owned physical service within that domain while independent physical domains may progress concurrently.
+
+## Raw 802.11 Radio
+
+`ESPressio_Raw80211Radio.hpp` provides `ESPressio::ESP32Platform::Raw80211Radio`.
+
+### Finite ingress
+
+The ESP-IDF promiscuous RX callback performs only bounded provider work:
+
+1. recognize the private ESPressio 802.11/LLC envelope;
+2. capture/calculate provider timestamp evidence;
+3. copy the accepted physical payload into a compile-time fixed SPSC ring;
+4. coalesce `InboundAvailable()` to the Radio runtime.
+
+No family decode or application callback runs in the driver callback.
+
+`ServiceInbound()` later drains only a finite quantum. The default bound is the configured ring capacity minus one slot. `ProviderResources()` publishes both finite ingress storage and service bounds.
+
+### Physical and logical bounds
+
+Raw80211 exposes a **270-byte** opaque Radio physical payload and a **4096-byte** provider logical ceiling. Radio v3 owns logical fragmentation above that physical payload.
+
+The provider adds its private 802.11/LLC/correlation envelope only below the Radio physical-packet boundary; it does not introduce another logical transfer protocol.
+
+### Managed transmission completion
+
+A call to `esp_wifi_80211_tx()` is only submission, not terminal transmission evidence. `Raw80211Radio` therefore embeds a provider-local correlation tag in its private frame envelope and registers the ESP-IDF raw TX callback.
+
+`Send()` returns `Accepted` with a deferred `RadioTransmissionHandle`. The ESP-IDF TX callback latches terminal success/failure and wakes infrastructure; the normal Radio-domain service quantum later publishes `TransmissionResolved()` after R3 has had the opportunity to install that handle. A reused or stale completion cannot be treated as a current fragment completion.
+
+Raw80211 does not claim peer acknowledgement merely because the ESP-IDF driver reported local transmission completion.
+
+### Cost and readiness
+
+`EstimateTransmissionCost()` publishes a finite relative cost based on the complete private physical frame size. It is intentionally classified `RelativeOnly`; it is useful for fair arbitration but is not presented as a conservative airtime bound for deadline certification.
+
+`IsTransmitReady()` requires the provider to be started, shared WiFi-phy access to be currently available, and no provider-local deferred transmission to be outstanding.
+
+### Receive timestamp evidence
+
+The ESP-IDF `wifi_pkt_rx_ctrl_t::timestamp` field is a WiFi-local 32-bit microsecond timer. `Raw80211Radio` extends it across wraps and aligns it to System monotonic time using the minimum observed callback lag over a fixed recent window.
+
+The resulting historical coordinate is useful evidence, but the current implementation deliberately publishes:
+
+```text
+RadioTimestampCaptureSource::Driver
+RadioTimestampQuality::Estimated
+HasCaptureModel = false
 ```
 
-`ESPressio::WiFi::IWiFiPlatform`, configuration, runtime state, reconnect policy, scanning and lifecycle remain owned by ESPressio-WiFi. Only Arduino/ESP-IDF implementation details—`WiFi.h`, `esp_wifi`, `esp_netif`, DHCP and radio access—belong here.
+It therefore does **not** satisfy the conservative finite capture/model evidence required for certified K1/K2 Clock synchronization. Software must not convert this estimate into a sub-millisecond certification claim until target characterization establishes and exposes a defensible worst-case bound and capture-time model.
 
-`ESPressio_WiFiRadio.hpp` contains RF-level helpers used when native radio policy/fingerprints are required. Its public helper names are likewise contextual (`WiFiRadioFingerprint`, `ReadWiFiRadioFingerprint`, `ApplyWiFiRadioPolicy`) rather than redundantly platform-qualified.
+## BLE Radio
 
-## Raw 802.11 Radio implementation
+`ESPressio_BLERadio.hpp` provides `ESPressio::ESP32Platform::BLERadio` using legacy non-connectable advertising plus passive scanning.
 
-`ESPressio_Raw80211Radio.hpp` provides the original ESP32 raw Wi-Fi bearer used by ESPressio-Radio and ESPressio-Mesh. Receive callbacks copy accepted frames into bounded storage and capture `System::Clock::Monotonic()` immediately in driver-callback context; `RadioWorker` performs parsing and observer notification later.
+BLE is an opaque Radio bearer only. Mesh membership/routing, Primitive semantics and application policy remain outside this provider.
 
-The ESP-IDF `wifi_pkt_rx_ctrl_t::timestamp` field belongs to a Wi-Fi-local 32-bit microsecond timer whose epoch is not exposed. `Raw80211Radio` therefore extends that counter across wraps and aligns it to `System::Clock::Monotonic()` with the minimum receive-callback lag in a fixed recent window; it never assumes that the two timer epochs are equal. Since a callback cannot precede physical reception, this removes variable callback scheduling latency while allowing the alignment to follow bounded timer-rate drift. Raw startup also disables modem sleep before advertising `ReceiveTimestamp`, as ESP-IDF only defines this field as precise without modem/light sleep. The remaining constant alignment floor and transmitter queue asymmetry are handled by Timing's bounded minimum-delay clock filter and must still be certified on target hardware before claiming an accuracy bound.
+### Redeveloped v3-compatible envelope
 
-## BLE Radio implementation
+The predecessor BLE envelope spent six bytes carrying a redundant destination address and exposed only 20 opaque payload bytes. That could not carry the locked Radio v3 fixed prefix plus six-byte source address.
 
-`ESPressio_BLERadio.hpp` provides `ESPressio::ESP32Platform::BLERadio`, a concrete implementation of the hardware-neutral `ESPressio::Radio::IRadio` contract using the ESP32 integrated Bluetooth Low Energy radio.
+The redesigned provider treats legacy advertising honestly as a broadcast bearer and removes that redundant destination field. One manufacturer-specific advertising structure now contains:
 
-The baseline bearer deliberately uses legacy non-connectable advertising and passive scanning so it remains applicable to original ESP32-class BLE hardware. BLE is treated only as an opaque Radio bearer: ESPressio-Mesh routing, membership, admission, identities, primitive semantics and policy remain outside this provider.
-
-```cpp
-#include <ESPressio_ESP32.hpp>
-#include <ESPressio_Radio.hpp>
-
-ESPressio::ESP32Platform::BLERadioConfiguration configuration;
-configuration.ManufacturerCompanyIdentifier = 0xFFFF; // development/testing identifier
-
-ESPressio::ESP32Platform::BLERadio bleRadio(configuration);
-ESPressio::Radio::RadioTransport radioTransport;
-ESPressio::Radio::RadioWorker radioWorker(radioTransport);
-
-radioWorker.AddInterface(bleRadio);
-bleRadio.Start();
+```text
+2 bytes manufacturer company identifier
+1 byte ESPressio frame marker
+N bytes opaque Radio physical packet
 ```
 
-All peers sharing this bearer must use the same `ManufacturerCompanyIdentifier`. `0xFFFF` is the Bluetooth SIG testing value and should be replaced with an appropriately assigned company identifier for a production product.
+After the legacy advertising structure overhead this exposes exactly **26 opaque Radio bytes**.
 
-Legacy advertising provides a 20-byte physical ESPressio Radio payload after the BLE advertisement envelope. `RadioTransport` remains responsible for bounded hop-local fragmentation/reassembly above that physical MTU; `BLERadio` does not duplicate transport fragmentation or acquire Mesh responsibilities.
+With the v3 15-byte fixed prefix and six-byte source address, BLE leaves five logical payload bytes per fragment and therefore advertises the exact v3-compatible logical maximum:
 
-### Mesh capacity profile
-
-`InternalMemoryMeshCapacityProfile<MeshTaskStackBytes, OtherApplicationAndCompositionBytes>` is the named ESP32 Mesh v1 build profile. It selects 4096 bytes for each complete inbound Mesh delivery, 512 bytes per protected control slot, 3584 bytes per bounded-owned application payload, and requires Radio to compile with four 4096-byte reassembly slots. The application payload value leaves room for both the end-to-end and hop-protection headers/tags inside one 4096-byte Radio logical transfer; the control value holds the largest hop-wrapped confirmed v1 handshake.
-
-The two template arguments are deliberately mandatory. A shipping firmware must account its actual Mesh task stacks and all other application/composition storage instead of inheriting invented platform defaults. Pass the resulting type, concrete security authority and compiled Radio transport to `MeshWholeDeviceMemoryAccounting` for the target-native total.
-
-Transmit packets are accepted into a bounded queue and advertised for a configurable dwell interval. Receive GAP callbacks perform only bounded recognition/copying and wake `RadioWorker`; packet delivery and observer notification are deferred to worker context.
-
-The current Bluedroid GAP callback is process-global, so one started `BLERadio` instance owns GAP callback coordination. Independent application code must not replace that callback while the Radio is active. WiFi may continue to operate concurrently through the ESP32 WiFi/Bluetooth coexistence facilities; actual throughput/latency under application load remains target-dependent and should be validated on-device.
-
-### Clock-synchronisation limitation
-
-`BLERadio` intentionally does **not** advertise `RadioCapability::ReceiveTimestamp` or `RadioCapability::TransmitTimestamp` at present. The ordinary Bluedroid scan-result callback does not expose a demonstrated near-RF receive timestamp, and callback arrival time must not be presented as sufficiently precise timing evidence.
-
-This is especially important for applications requiring reliable inter-node synchronization below 1 ms. BLE may be used as the Mesh bearer independently of whether it later qualifies as a high-precision Timing bearer. Timestamp capabilities should only be enabled after controller/driver-level timing characterization under realistic BLE/WiFi coexistence load demonstrates adequate worst-case uncertainty margin.
-
-## Persistence platform implementations
-
-Hardware-backed Persistence providers are supplied here rather than by ESPressio-Persistence itself:
-
-```cpp
-#include <ESPressio_PersistenceBackends.hpp>
+```text
+5 * 255 = 1275 bytes
 ```
 
-Available implementations include:
+`Send()` rejects non-broadcast destinations; the provider does not pretend legacy advertisements are unicast.
 
-- `PreferencesStorage` — Preferences/NVS;
-- `LittleFSStorage`;
-- `SPIFFSStorage`;
-- `FFatStorage`;
-- `SDStorage` — SPI SD;
-- `SDMMCStorage` — native SD/MMC.
+### Bounded ingress and TX ownership
 
-They implement the `IKeyValueStorage` / `IFileStorage` contracts owned by ESPressio-Persistence. Atomic replacement, serialization integration, schema migration and persistence policy remain in that domain library.
+The scan callback performs bounded recognition/copy into a fixed ring and signals `InboundAvailable()`. `ServiceInbound()` drains a finite quantum.
 
-## Platform bootstrap example
+Only one BLE TX campaign may be outstanding. `Send()` configures the raw advertising payload and returns a deferred transmission handle. After the configured finite advertising dwell, advertising is stopped and terminal completion is published through the normal managed-provider sink. There is no hidden unbounded advertisement queue above R3.
 
-```cpp
-#include <ESPressio_ESP32.hpp>
+`ProviderResources()` reports the fixed receive-ring bound and a provider TX queue depth of one.
 
-namespace {
-struct ESPressioPlatformBootstrap {
-    ESPressioPlatformBootstrap() {
-        ESPressio::ESP32Platform::InstallSystemProviders();
-    }
-};
+### Cost and Clock limitations
 
-__attribute__((init_priority(101)))
-ESPressioPlatformBootstrap espressioPlatformBootstrap;
-}
-```
+BLE cost is finite but `RelativeOnly`, based on configured advertising dwell plus payload size. It is suitable for fairness accounting but not promoted-deadline certification.
 
-Construction order remains especially important for the memory provider because allocator-aware objects retain the provider active when their allocators are constructed.
+The Bluedroid scan-result callback does not expose a demonstrated provider-proximate receive timestamp. `BLERadio` therefore advertises neither `ReceiveTimestamp` nor `TransmitTimestamp` and returns unqualified timestamp evidence.
+
+The ordinary v3 bearer is now compatible, but the exact compact Radio Clock response is **32 bytes**, larger than BLE's 26-byte physical payload. Consequently this legacy-advertising provider cannot carry that certified single-packet Clock profile and must not be represented as a sub-millisecond Clock bearer.
+
+### Global BLE callback ownership
+
+The current Bluedroid GAP callback is process-global, so at most one started `BLERadio` instance owns that callback coordination. Other application code must not replace the callback while the provider is active.
+
+WiFi may operate concurrently through ESP32 WiFi/Bluetooth coexistence, but throughput/latency under coexistence remains a target-level validation concern.
+
+## Persistence providers
+
+Hardware-backed Persistence implementations remain supplied here rather than by `ESPressio-Persistence` itself. These include Preferences/NVS, LittleFS, SPIFFS, FFat, SPI SD and SD/MMC backends. Atomic replacement, serialization/schema migration and persistence policy remain owned by the Persistence domain.
 
 ## Namespace
 
-System platform providers live in:
+System and concrete platform providers live in:
 
 ```cpp
 ESPressio::ESP32Platform
 ```
 
-rather than `ESPressio::ESP32`, because Arduino/ESP32 toolchains may define `ESP32` as a preprocessor macro. The namespace identifies the implementation package; contained provider type names remain contextual and neutral.
-
-Domain implementations continue to satisfy interfaces in their domain namespaces; for example `ESPressio::WiFi::WiFiPlatform` implements `ESPressio::WiFi::IWiFiPlatform` and `ESPressio::ESP32Platform::BLERadio` implements `ESPressio::Radio::IRadio`.
+rather than `ESPressio::ESP32`, because ESP32 toolchains may define `ESP32` as a preprocessor macro.
 
 ## Architectural boundary
-
-ESPressio-ESP32 is allowed to know ESP-IDF, Arduino-ESP32 and FreeRTOS. Portable libraries should not repeat direct platform calls when an ESPressio abstraction exists.
 
 The ownership rule is:
 
@@ -286,14 +220,12 @@ domain contract/policy                  -> domain library
 ESP32 implementation of either          -> ESPressio-ESP32
 ```
 
-This prevents ESPressio-System from becoming a catch-all while preventing every higher-level library from independently binding to ESP32 APIs.
+ESP32-specific code may know ESP-IDF, Arduino-ESP32 and FreeRTOS. Portable libraries should not repeat direct platform calls when an ESPressio abstraction exists.
 
 ## Compatibility and requirements
 
-- ESP32 with current ESP-IDF/Arduino-ESP32 facilities.
-- C++17.
-- No RTTI requirement for the platform layer itself.
-- ESPressio-System is the base abstraction dependency.
-- Radio/WiFi/Persistence dependencies are present because this repository implements those domain contracts.
-- `BLERadio` is exposed when the target SDK configuration enables BLE with the Bluedroid host.
-- Arduino-specific adapters are exposed only when compiling with the Arduino framework.
+- ESP32 with the corresponding current ESP-IDF/Arduino-ESP32 facilities;
+- C++17;
+- no RTTI requirement for the platform layer itself;
+- `BLERadio` is exposed only when BLE + Bluedroid are enabled by the target SDK configuration;
+- Arduino-specific adapters are exposed only under the Arduino framework.
