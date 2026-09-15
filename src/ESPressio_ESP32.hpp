@@ -12,6 +12,18 @@
 #include "ESPressio_ESP32MeshCapacityProfile.hpp"
 #endif
 
+// OTA remains optional by composition. The ESP32 library exposes its concrete
+// bindings automatically only when the semantic owner libraries are present.
+#if __has_include(<ESPressio_Platform_IDFOTA.hpp>)
+#include "ESPressio_OTAPlatformProviders.hpp"
+#endif
+#if __has_include(<ESPressio_OTACapacityProfile.hpp>)
+#include "ESPressio_ESP32OTACapacityProfile.hpp"
+#endif
+#if __has_include(<ESPressio_Verification.hpp>) && __has_include(<psa/crypto.h>)
+#include "ESPressio_OTASecurityProviders.hpp"
+#endif
+
 #if defined(ARDUINO)
 #include "ESPressio_ArduinoGPIOProvider.hpp"
 #endif
