@@ -3,8 +3,10 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 #include <ESPressio_ESP32.hpp>
+#include <ESPressio_PersistenceBackends.hpp>
 #include <ESPressio_Radio.hpp>
 
 namespace {
@@ -34,6 +36,17 @@ static_assert(ESPressio::Platform::OTA::IsStorageLayoutInspectionProviderV<
 #if __has_include(<ESPressio_OTACapacityProfile.hpp>)
 static_assert(ESPressio::ESP32Platform::ESP32OTACapacityProfile::IsValid);
 static_assert(ESPressio::ESP32Platform::ESP32OTACapacityProfile::TransferBufferBytes == 4096U);
+#endif
+
+#if __has_include(<ESPressio_IAtomicRecordStore.hpp>)
+constexpr std::array<ESPressio::Persistence::AtomicRecordKey, 2U> otaSmokeRecordKeys = [] {
+    std::array<ESPressio::Persistence::AtomicRecordKey, 2U> keys{};
+    ESPressio::Persistence::AtomicRecordKey::TryCreate("ota.control", keys[0]);
+    ESPressio::Persistence::AtomicRecordKey::TryCreate("ota.checkpoint", keys[1]);
+    return keys;
+}();
+ESPressio::Persistence::NVSAtomicRecordStore<2048U, otaSmokeRecordKeys.size()> otaAtomicRecordStore{
+    otaSmokeRecordKeys, "ota_smoke"};
 #endif
 
 #if __has_include(<ESPressio_Verification.hpp>) && __has_include(<psa/crypto.h>)
@@ -79,6 +92,17 @@ void setup() {
         sizeof(otaApplicationStaging) + sizeof(otaBootControl) + sizeof(otaTrialBoot) +
         sizeof(otaSystemRestart) + sizeof(otaStorageLayoutInspection);
     (void)otaPlatformProviderBytes;
+#endif
+
+#if __has_include(<ESPressio_IAtomicRecordStore.hpp>)
+    // Validate the concrete durable record composition without opening or mutating NVS.
+    const auto otaPersistenceCapabilities = otaAtomicRecordStore.Capabilities();
+    volatile bool otaPersistenceBounded =
+        otaPersistenceCapabilities.DurableOldOrNew &&
+        otaPersistenceCapabilities.BoundedOperations &&
+        otaPersistenceCapabilities.MaximumRecordBytes == 2048U &&
+        otaPersistenceCapabilities.MaximumRecords == otaSmokeRecordKeys.size();
+    (void)otaPersistenceBounded;
 #endif
 
 #if __has_include(<ESPressio_Verification.hpp>) && __has_include(<psa/crypto.h>)

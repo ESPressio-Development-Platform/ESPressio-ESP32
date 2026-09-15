@@ -9,4 +9,7 @@
 #include "ESPressio_PreferencesStorage.hpp"
 #include "ESPressio_SDStorage.hpp"
 #include "ESPressio_SDMMCStorage.hpp"
+#if __has_include(<ESPressio_IAtomicRecordStore.hpp>)
+#include "ESPressio_NVSAtomicRecordStore.hpp"
+#endif
 #endif

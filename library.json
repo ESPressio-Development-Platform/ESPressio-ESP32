@@ -12,7 +12,7 @@
   "dependencies": [
     {
       "name":"ESPressio-System",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-System.git#primitives_redesign",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-System.git#ota_v1",
       "platforms":"*"
     },
     {
@@ -32,7 +32,7 @@
     },
     {
       "name":"ESPressio-Persistence",
-      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#primitives_redesign",
+      "version":"https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#ota_v1",
       "platforms":"espressif32"
     }
   ]
