@@ -4,6 +4,7 @@
 #error "ESPressio_Raw80211WiFiBootstrap.hpp requires an ESP32 Arduino target"
 #endif
 
+#include <cstddef>
 #include <cstdint>
 
 #include <esp_err.h>
@@ -13,7 +14,6 @@
 namespace ESPressio::ESP32Platform {
 
 /// <summary>Outcome from establishing an ESP-IDF Wi-Fi driver exclusively for Raw80211 use.</summary>
-
 enum class Raw80211WiFiBootstrapStatus : std::uint8_t {
     Initialized,
     AlreadyInitialized,
@@ -22,11 +22,11 @@ enum class Raw80211WiFiBootstrapStatus : std::uint8_t {
     DriverInitializationFailed,
     StorageConfigurationFailed,
     ModeConfigurationFailed,
+    RateConfigurationFailed,
     DriverStartFailed
 };
 
 /// <summary>Detailed Raw80211-only Wi-Fi bootstrap result.</summary>
-
 struct Raw80211WiFiBootstrapResult final {
     Raw80211WiFiBootstrapStatus Status{Raw80211WiFiBootstrapStatus::InvalidConfiguration};
     esp_err_t NativeStatus{ESP_OK};
@@ -50,8 +50,12 @@ struct Raw80211WiFiBootstrapResult final {
 /// unused networking/throughput features, not from starving the radio receive path. AMPDU/AMSDU, CSI and Wi-Fi NVS are
 /// disabled because this provider emits and accepts independent non-QoS frames and keeps its own bounded queues. TX keeps
 /// whichever allocation mode WIFI_INIT_CONFIG_DEFAULT selected, with only that active mode's buffer count reduced.
+///
+/// The raw-only profile pins 802.11 TX to 6 Mb/s OFDM by default. This is deliberately done inside the documented
+/// esp_wifi_init() -> esp_wifi_start() configuration window. A provider may advertise a conservative physical-airtime
+/// model only when this bootstrap actually owns that pinned driver; joining somebody else's already-running Wi-Fi driver
+/// never inherits that timing claim.
 /// </remarks>
-
 struct Raw80211WiFiBootstrapConfiguration final {
     std::uint8_t StaticRxBuffers{6U};
     std::uint8_t DynamicRxBuffers{12U};
@@ -59,6 +63,7 @@ struct Raw80211WiFiBootstrapConfiguration final {
     std::uint8_t StaticTxBuffers{6U};
     bool DisableAmpdu{true};
     bool DisableNvs{true};
+    bool PinRawTxRate6Mbps{true};
 };
 
 /// <summary>
@@ -70,11 +75,11 @@ struct Raw80211WiFiBootstrapConfiguration final {
 /// also creates the default ESP event loop required by the Wi-Fi driver to publish lifecycle events. This deliberately does
 /// not create esp_netif/LwIP networking. Shutdown() releases only resources this bootstrap owns.
 /// </remarks>
-
 class Raw80211WiFiBootstrap final {
 private:
     Raw80211WiFiBootstrapConfiguration _configuration{};
     bool _ownsDriver{false};
+    bool _ownsPinnedRawTxRate{false};
     bool _ownsDefaultEventLoop{false};
 
     static constexpr int StaticTxBufferType = 0;
@@ -87,6 +92,7 @@ private:
     }
 
     void ReleaseOwnedResources() noexcept {
+        _ownsPinnedRawTxRate = false;
         if (_ownsDriver) {
             (void)esp_wifi_stop();
             (void)esp_wifi_deinit();
@@ -120,7 +126,7 @@ public:
 
         wifi_mode_t existingMode = WIFI_MODE_NULL;
         if (esp_wifi_get_mode(&existingMode) == ESP_OK && existingMode != WIFI_MODE_NULL) {
-            // Another lifecycle already owns Wi-Fi. Do not mutate its event-loop, buffer, or feature policy.
+            // Another lifecycle already owns Wi-Fi. Do not mutate its event-loop, buffer, feature, or PHY-rate policy.
             return {Raw80211WiFiBootstrapStatus::AlreadyInitialized, ESP_OK};
         }
 
@@ -171,6 +177,15 @@ public:
             return {Raw80211WiFiBootstrapStatus::ModeConfigurationFailed, native};
         }
 
+        if (_configuration.PinRawTxRate6Mbps) {
+            native = esp_wifi_config_80211_tx_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
+            if (native != ESP_OK) {
+                ReleaseOwnedResources();
+                return {Raw80211WiFiBootstrapStatus::RateConfigurationFailed, native};
+            }
+            _ownsPinnedRawTxRate = true;
+        }
+
         native = esp_wifi_start();
         if (native != ESP_OK) {
             ReleaseOwnedResources();
@@ -185,7 +200,29 @@ public:
     }
 
     bool OwnsDriver() const noexcept { return _ownsDriver; }
+    bool OwnsPinnedRawTxRate() const noexcept { return _ownsDriver && _ownsPinnedRawTxRate; }
     bool OwnsDefaultEventLoop() const noexcept { return _ownsDefaultEventLoop; }
+
+    /// <summary>
+    /// Returns a conservative 6 Mb/s OFDM PPDU airtime for one complete 802.11 MAC frame when this bootstrap owns the
+    /// pinned PHY. The estimate includes 4 FCS bytes added by hardware, the 16-bit SERVICE field, 6 TAIL bits, OFDM symbol
+    /// padding and the 20 us legacy OFDM preamble/signal interval. It intentionally excludes medium-access/backoff delay;
+    /// Radio's scheduler guard and measured Clock RTT remain responsible for admission against those external delays.
+    /// </summary>
+    std::uint64_t ConservativeRawFrameAirtimeNanoseconds(std::size_t macFrameBytes) const noexcept {
+        if (!OwnsPinnedRawTxRate() || macFrameBytes == 0U) return 0U;
+        constexpr std::uint64_t FcsBytes = 4U;
+        constexpr std::uint64_t ServiceBits = 16U;
+        constexpr std::uint64_t TailBits = 6U;
+        constexpr std::uint64_t DataBitsPerOfdmSymbolAt6Mbps = 24U;
+        constexpr std::uint64_t OfdmSymbolNanoseconds = 4000U;
+        constexpr std::uint64_t PreambleAndSignalNanoseconds = 20000U;
+        const auto bits = ServiceBits +
+            (static_cast<std::uint64_t>(macFrameBytes) + FcsBytes) * 8U + TailBits;
+        const auto symbols =
+            (bits + DataBitsPerOfdmSymbolAt6Mbps - 1U) / DataBitsPerOfdmSymbolAt6Mbps;
+        return PreambleAndSignalNanoseconds + symbols * OfdmSymbolNanoseconds;
+    }
 
     const Raw80211WiFiBootstrapConfiguration& Configuration() const noexcept {
         return _configuration;
