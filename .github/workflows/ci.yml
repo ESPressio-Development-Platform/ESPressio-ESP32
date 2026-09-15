@@ -8,6 +8,7 @@ on:
       - 'optimisation/**'
       - structural_realignment_propagation_ESPressio-Mesh
       - primitives_redesign
+      - ota_v1
   pull_request:
 
 jobs:
@@ -20,7 +21,7 @@ jobs:
           python-version: '3.x'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Build managed Radio provider smoke project
+      - name: Build managed ESP32 provider smoke project
         working-directory: examples/ProviderSmoke
         shell: bash
         run: |
