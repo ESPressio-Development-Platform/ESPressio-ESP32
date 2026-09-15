@@ -33,3 +33,37 @@ jobs:
           name: esp32-provider-build-log
           path: esp32-provider-build.log
           if-no-files-found: warn
+
+  esp32-non-radio-provider:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Reject predecessor non-Radio consumer APIs
+        shell: bash
+        run: |
+          if grep -R -n -E 'PrecisionThread|PrecisionEventThread|EventThreadBase|RemoteStateObserverThread|CommandRegistry|EventTransportManager|ClockSynchronizationState' src \
+              --exclude='ESPressio_BLERadio.hpp' \
+              --exclude='ESPressio_Raw80211Radio.hpp' \
+              --exclude='ESPressio_Raw80211WiFiBootstrap.hpp' \
+              --exclude='ESPressio_WiFiRadio.hpp'; then
+            echo 'Predecessor API remains in ESP32 non-Radio production source.' >&2
+            exit 1
+          fi
+      - name: Build final non-Radio provider smoke project
+        working-directory: examples/NonRadioProviderSmoke
+        shell: bash
+        run: |
+          set -o pipefail
+          pio run -e esp32dev 2>&1 | tee ../../esp32-non-radio-provider-build.log
+      - name: Upload non-Radio compiler log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32-non-radio-provider-build-log
+          path: esp32-non-radio-provider-build.log
+          if-no-files-found: warn
