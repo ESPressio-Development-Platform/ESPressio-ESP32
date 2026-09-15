@@ -64,6 +64,12 @@ struct Raw80211ReceiveTimestampStatistics final {
 /// latches terminal completion in the Wi-Fi task, and the Radio domain service quantum publishes it only after R3 has had
 /// the opportunity to install the returned deferred handle. Receive timestamp mapping is useful historical evidence but
 /// remains Estimated rather than falsely claiming the conservative finite bound required for certified K1/K2 Clock use.
+///
+/// Transmission-cost evidence is similarly honest. A shared/already-running Wi-Fi lifecycle remains RelativeOnly because
+/// this provider cannot prove its PHY-rate policy. Only the opt-in lean Raw80211 bootstrap, when it actually owns and pins
+/// the driver to its documented 6 Mb/s OFDM profile, supplies a conservative physical-frame airtime bound suitable for
+/// Radio deadline promotion. The bound is airtime rather than channel-access latency; Timing's measured RTT and Radio's
+/// scheduler/reference allowances remain responsible for rejecting delayed Clock exchanges.
 /// </remarks>
 class Raw80211Radio final : public Radio::IRadio, public IRawWiFiPhyAccessObserver {
 private:
@@ -420,6 +426,13 @@ public:
     Radio::RadioTransmissionCost EstimateTransmissionCost(
         const Radio::RadioAddress&,std::size_t payloadBytes,const Radio::RadioServiceProfile&) const noexcept override {
         const auto physicalBytes=Dot11HeaderBytes+EncapsulationBytes+payloadBytes;
+#if ESPRESSIO_ESP32_RAW_RADIO_LEAN_WIFI_BOOTSTRAP
+        const auto airtime=_leanWiFiBootstrap.ConservativeRawFrameAirtimeNanoseconds(physicalBytes);
+        if(airtime!=0U){
+            return {physicalBytes==0?1:static_cast<std::uint64_t>(physicalBytes),airtime,
+                    Radio::RadioCostEstimateQuality::ConservativeAirtime};
+        }
+#endif
         return {physicalBytes==0?1:static_cast<std::uint64_t>(physicalBytes),0,
                 Radio::RadioCostEstimateQuality::RelativeOnly};
     }
